@@ -1,14 +1,23 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  doc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy
+} from "firebase/firestore";
+import { auth, db } from "./firebase";
 
-// ── Seed Data ──────────────────────────────────────────────────────────────
-const SAMPLE_CARDS = [
-  { id: 1, player: "Connor McDavid", year: 2015, set: "Upper Deck Young Guns", grade: "PSA 10", sport: "Hockey", purchasePrice: 1200, currentValue: 3400, addedAt: "2022-03" },
-  { id: 2, player: "Luka Dončić", year: 2018, set: "Panini Prizm RC", grade: "PSA 9", sport: "Basketball", purchasePrice: 800, currentValue: 1100, addedAt: "2022-06" },
-  { id: 3, player: "Fernando Tatis Jr.", year: 2019, set: "Bowman Chrome Auto", grade: "BGS 9.5", sport: "Baseball", purchasePrice: 450, currentValue: 310, addedAt: "2022-09" },
-];
-
-// Simulated portfolio history (monthly snapshots)
+// Simulated portfolio history (fallback if Firestore history tracking isn't set up yet)
 const HISTORY = [
   { month: "Jan '24", value: 3200 },
   { month: "Feb '24", value: 3650 },
@@ -22,11 +31,6 @@ const HISTORY = [
   { month: "Oct '24", value: 5100 },
   { month: "Nov '24", value: 4900 },
   { month: "Dec '24", value: 4810 },
-];
-
-const SAMPLE_WATCHLIST = [
-  { id: 1, player: "Victor Wembanyama", year: 2023, set: "Panini Prizm RC", grade: "PSA 10", sport: "Basketball", targetBuy: 800, currentEst: 1100, alert: true },
-  { id: 2, player: "Caitlin Clark", year: 2024, set: "Topps Chrome RC", grade: "PSA 9", sport: "Basketball", targetBuy: 200, currentEst: 280, alert: false },
 ];
 
 const TABS = ["Portfolio", "History", "Watchlist", "Grading", "Advisor", "Market"];
@@ -43,14 +47,33 @@ const S = { // shared inline style tokens
   muted: "#6b6b8a",
 };
 
-const callClaude = async (messages, system) => {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system, messages }),
-  });
-  const data = await res.json();
-  return data.content?.map((b) => b.text || "").join("") || "No response.";
+// ── Secure Client-Side ChatGPT integration ────────────────────────────────────
+const callChatGPT = async (messages, system) => {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey || apiKey.includes("YOUR_OPENAI_API_KEY")) {
+    return "Please configure VITE_OPENAI_API_KEY in your .env file to enable the AI advisor.";
+  }
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 800,
+        messages: [
+          { role: "system", content: system },
+          ...messages
+        ]
+      }),
+    });
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "No response received.";
+  } catch (err) {
+    return `AI Error: ${err.message}`;
+  }
 };
 
 // ── Custom Tooltip for chart ───────────────────────────────────────────────
@@ -88,7 +111,7 @@ function GradingTab() {
     setLoading(true);
     setAiAnalysis("");
     const system = `You are a sports card grading expert. Analyze whether it's worth submitting a card for PSA grading. Consider: pop report density, centering risk, surface issues common to that set, whether the grade premium justifies cost. Be direct and specific. Under 180 words.`;
-    const res = await callClaude([{ role: "user", content: `Should I submit this card for PSA grading?\nCard: ${form.player}\nRaw value: $${rawN}\nPSA 10 est: $${p10}\nPSA 9 est: $${p9}\nGrading cost: $${cost}\nTier: ${form.tier}` }], system);
+    const res = await callChatGPT([{ role: "user", content: `Should I submit this card for PSA grading?\nCard: ${form.player}\nRaw value: $${rawN}\nPSA 10 est: $${p10}\nPSA 9 est: $${p9}\nGrading cost: $${cost}\nTier: ${form.tier}` }], system);
     setAiAnalysis(res);
     setLoading(false);
   };
@@ -156,21 +179,48 @@ function GradingTab() {
 }
 
 // ── Watchlist Tab ──────────────────────────────────────────────────────────
-function WatchlistTab() {
-  const [items, setItems] = useState(SAMPLE_WATCHLIST);
+function WatchlistTab({ user }) {
+  const [items, setItems] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newItem, setNewItem] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
   const [ebayQuery, setEbayQuery] = useState("");
   const [ebayResult, setEbayResult] = useState("");
   const [ebayLoading, setEbayLoading] = useState(false);
 
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, `users/${user.uid}/watchlists`), orderBy("addedAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+    return unsubscribe;
+  }, [user]);
+
   const setField = (k, v) => setNewItem((n) => ({ ...n, [k]: v }));
 
-  const addItem = () => {
+  const addItem = async () => {
     if (!newItem.player) return;
-    setItems([...items, { ...newItem, id: Date.now(), targetBuy: parseFloat(newItem.targetBuy) || 0, currentEst: parseFloat(newItem.currentEst) || 0, alert: false }]);
-    setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
-    setShowAdd(false);
+    try {
+      await addDoc(collection(db, `users/${user.uid}/watchlists`), {
+        ...newItem,
+        targetBuy: parseFloat(newItem.targetBuy) || 0,
+        currentEst: parseFloat(newItem.currentEst) || 0,
+        alert: false,
+        addedAt: new Date().toISOString()
+      });
+      setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
+      setShowAdd(false);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const removeItem = async (id) => {
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/watchlists`, id));
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const fetchEbayPrices = async () => {
@@ -178,7 +228,7 @@ function WatchlistTab() {
     setEbayLoading(true);
     setEbayResult("");
     const system = `You are a sports card pricing expert simulating eBay sold listing data. Based on your knowledge of the market, provide realistic recent sold prices for the card queried. Format as: 3–5 recent "sold" prices with dates, a 30-day average, and a trend note. Be specific and realistic. Under 150 words.`;
-    const res = await callClaude([{ role: "user", content: `Simulate recent eBay sold listings for: ${ebayQuery}` }], system);
+    const res = await callChatGPT([{ role: "user", content: `Simulate recent eBay sold listings for: ${ebayQuery}` }], system);
     setEbayResult(res);
     setEbayLoading(false);
   };
@@ -231,7 +281,7 @@ function WatchlistTab() {
                   <div style={{ fontSize: 16, fontWeight: 800, color: S.text }}>{fmt(item.currentEst)}</div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: gainColor(-diff) }}>{diff > 0 ? "+" : ""}{pct}% vs target</div>
                 </div>
-                <button onClick={() => setItems(items.filter((i) => i.id !== item.id))} style={{ background: "none", border: "none", color: "#3a3a5e", cursor: "pointer", fontSize: 18 }}>×</button>
+                <button onClick={() => removeItem(item.id)} style={{ background: "none", border: "none", color: "#3a3a5e", cursor: "pointer", fontSize: 18 }}>×</button>
               </div>
             </div>
           );
@@ -268,11 +318,11 @@ function HistoryTab({ cards }) {
   const totalCost = cards.reduce((s, c) => s + c.purchasePrice, 0);
 
   // Append today to history
-  const data = [...HISTORY, { month: "Jun '25", value: totalValue }];
+  const data = [...HISTORY, { month: "Today", value: totalValue }];
   const start = data[0].value;
   const end = data[data.length - 1].value;
   const overallGain = end - start;
-  const overallPct = ((overallGain / start) * 100).toFixed(1);
+  const overallPct = start > 0 ? ((overallGain / start) * 100).toFixed(1) : 0;
   const best = data.reduce((a, b) => (b.value > a.value ? b : a));
   const worst = data.reduce((a, b) => (b.value < a.value ? b : a));
 
@@ -326,8 +376,15 @@ function HistoryTab({ cards }) {
 
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+
   const [tab, setTab] = useState("Portfolio");
-  const [cards, setCards] = useState(SAMPLE_CARDS);
+  const [cards, setCards] = useState([]);
   const [chatMessages, setChatMessages] = useState([
     { role: "assistant", content: "Hey! I'm your CardIQ financial advisor. I know your full portfolio — ask me anything about valuations, buy/sell signals, grading strategy, or market trends." },
   ]);
@@ -340,12 +397,45 @@ export default function App() {
   const [marketLoading, setMarketLoading] = useState(false);
   const chatEndRef = useRef(null);
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, `users/${user.uid}/portfolios`), orderBy("addedAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setCards(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+    return unsubscribe;
+  }, [user]);
+
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
 
   const totalCost = cards.reduce((s, c) => s + c.purchasePrice, 0);
   const totalValue = cards.reduce((s, c) => s + c.currentValue, 0);
   const totalGain = totalValue - totalCost;
-  const totalGainPct = ((totalGain / totalCost) * 100).toFixed(1);
+  const totalGainPct = totalCost > 0 ? ((totalGain / totalCost) * 100).toFixed(1) : 0;
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err) {
+      setAuthError(err.message.replace("Firebase: ", ""));
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
 
   const sendChat = async () => {
     if (!chatInput.trim() || chatLoading) return;
@@ -356,7 +446,7 @@ export default function App() {
     setChatLoading(true);
     const ctx = cards.map((c) => `${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
     const system = `You are an expert sports card financial advisor with deep knowledge of PSA/BGS grading, Panini, Topps, Upper Deck, rookie card investing, pop reports, auction results, and market trends.\n\nUser portfolio:\n${ctx}\nTotal invested: ${fmt(totalCost)} | Current value: ${fmt(totalValue)} | Return: ${totalGainPct}%\n\nGive concise, confident, actionable advice. Use dollar figures. Be honest about risks. Speak like a knowledgeable collector friend. Under 200 words.`;
-    const reply = await callClaude(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
+    const reply = await callChatGPT(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
     setChatMessages([...newHistory, { role: "assistant", content: reply }]);
     setChatLoading(false);
   };
@@ -366,28 +456,87 @@ export default function App() {
     setMarketLoading(true);
     setMarketResult("");
     const system = `You are a sports card market analyst. Give detailed analysis: current price ranges, trend direction, key value drivers, PSA 9 vs 10 grade premium spread, and a clear BUY / HOLD / SELL recommendation with reasoning. Be specific with numbers. Under 250 words.`;
-    const result = await callClaude([{ role: "user", content: `Analyze the sports card market for: ${marketQuery}` }], system);
+    const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${marketQuery}` }], system);
     setMarketResult(result);
     setMarketLoading(false);
   };
 
-  const addCard = () => {
+  const addCard = async () => {
     if (!newCard.player || !newCard.purchasePrice || !newCard.currentValue) return;
-    setCards([...cards, { ...newCard, id: Date.now(), year: parseInt(newCard.year), purchasePrice: parseFloat(newCard.purchasePrice), currentValue: parseFloat(newCard.currentValue), addedAt: new Date().toISOString().slice(0, 7) }]);
-    setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "" });
-    setShowAddCard(false);
+    try {
+      await addDoc(collection(db, `users/${user.uid}/portfolios`), {
+        ...newCard,
+        year: parseInt(newCard.year) || new Date().getFullYear(),
+        purchasePrice: parseFloat(newCard.purchasePrice),
+        currentValue: parseFloat(newCard.currentValue),
+        addedAt: new Date().toISOString()
+      });
+      setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "" });
+      setShowAddCard(false);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const removeCard = (id) => setCards(cards.filter((c) => c.id !== id));
+  const removeCard = async (id) => {
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/portfolios`, id));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, color: S.text }}>
+        <div style={{ fontSize: 16, color: S.gold, fontWeight: 700 }}>CardIQ Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ ...S.card, width: 380, padding: 30, background: "linear-gradient(145deg, #111118, #0a0a0f)", border: "1px solid #2a2a3e" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Card<span style={{ color: S.gold }}>IQ</span></span>
+            <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Sports Card Investment & AI Advisor</div>
+          </div>
+          <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} style={S.input} required />
+            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={S.input} required />
+            
+            {authError && <div style={{ fontSize: 13, color: "#ef4444", textAlign: "center" }}>{authError}</div>}
+            
+            <button type="submit" style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", transition: "opacity 0.2s" }}>
+              {isSignUp ? "Create Account" : "Sign In"}
+            </button>
+          </form>
+          <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: S.muted }}>
+            {isSignUp ? "Already have an account? " : "New to CardIQ? "}
+            <span onClick={() => { setIsSignUp(!isSignUp); setAuthError(""); }} style={{ color: S.gold, cursor: "pointer", fontWeight: 600 }}>
+              {isSignUp ? "Sign In" : "Sign Up"}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: 920, margin: "0 auto", paddingBottom: 60 }}>
 
       {/* Header */}
       <div style={{ padding: "24px 24px 0", borderBottom: "1px solid #1e1e2e" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
-          <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>CardIQ</span>
-          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>CardIQ</span>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: S.muted }}>{user.email}</span>
+            <button onClick={handleLogout} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>Sign Out</button>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 18, overflowX: "auto" }}>
           {TABS.map((t) => (
@@ -446,7 +595,7 @@ export default function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {cards.map((card) => {
                 const gain = card.currentValue - card.purchasePrice;
-                const gainPct = ((gain / card.purchasePrice) * 100).toFixed(1);
+                const gainPct = card.purchasePrice > 0 ? ((gain / card.purchasePrice) * 100).toFixed(1) : 0;
                 return (
                   <div key={card.id} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
@@ -471,7 +620,7 @@ export default function App() {
         {tab === "History" && <HistoryTab cards={cards} />}
 
         {/* ── WATCHLIST ── */}
-        {tab === "Watchlist" && <WatchlistTab />}
+        {tab === "Watchlist" && <WatchlistTab user={user} />}
 
         {/* ── GRADING ── */}
         {tab === "Grading" && <GradingTab />}
