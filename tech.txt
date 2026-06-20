@@ -30,28 +30,20 @@ const firebaseConfig = {
 
 ---
 
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyCisfoJTy2KlL_hkDyyJ34gYYn6JXe2700",
-  authDomain: "cardiq-f2cbb.firebaseapp.com",
-  projectId: "cardiq-f2cbb",
-  storageBucket: "cardiq-f2cbb.firebasestorage.app",
-  messagingSenderId: "38075516879",
-  appId: "1:38075516879:web:0c8e105368f0efb4c4f4ba",
-  measurementId: "G-X2SRSM98MY"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+https://aistudio.google.com/
 
 
+For Android:
+Go to your Firebase Console.
+Go to Project Settings (gear icon) > General.
+Under Your apps, click Add app and select the Android platform icon.
+Set the package name to com.justrise.cardiq.cardiq_mobile (matching your organization package).
+Download the google-services.json file.
+Place this file inside: cardiq_mobile/android/app/google-services.json
 
-ChatGPT : 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
+
+For iOS:
+Under Your apps in the Firebase Console, click Add app and select the iOS platform icon.
+Enter the Bundle ID com.justrise.cardiq.cardiqMobile.
+Download the GoogleService-Info.plist file.
+Place this file inside: cardiq_mobile/ios/Runner/GoogleService-Info.plist (and open the iOS folder in Xcode to drag and link this file into the Runner folder).

@@ -9,6 +9,7 @@ class CardModel {
   final String sport;
   final double purchasePrice;
   final double currentValue;
+  final int quantity;
   final String addedAt;
 
   CardModel({
@@ -20,6 +21,7 @@ class CardModel {
     required this.sport,
     required this.purchasePrice,
     required this.currentValue,
+    required this.quantity,
     required this.addedAt,
   });
 
@@ -34,6 +36,7 @@ class CardModel {
       sport: data['sport'] ?? 'Basketball',
       purchasePrice: (data['purchasePrice'] ?? 0.0).toDouble(),
       currentValue: (data['currentValue'] ?? 0.0).toDouble(),
+      quantity: data['quantity'] ?? 1,
       addedAt: data['addedAt'] ?? '',
     );
   }
@@ -47,6 +50,7 @@ class CardModel {
       'sport': sport,
       'purchasePrice': purchasePrice,
       'currentValue': currentValue,
+      'quantity': quantity,
       'addedAt': addedAt,
     };
   }

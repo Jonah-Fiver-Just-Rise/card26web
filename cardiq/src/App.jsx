@@ -13,7 +13,8 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  orderBy
+  orderBy,
+  setDoc
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
@@ -47,11 +48,34 @@ const S = { // shared inline style tokens
   muted: "#6b6b8a",
 };
 
-// ── Secure Client-Side ChatGPT integration ────────────────────────────────────
+// ── Secure Client-Side API integration (Supports Gemini with OpenAI fallback) ──
 const callChatGPT = async (messages, system) => {
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (geminiKey && !geminiKey.includes("YOUR_GEMINI_API_KEY") && geminiKey.trim() !== "") {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: `System Prompt Instructions: ${system}` }] },
+            ...messages.map(m => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }]
+            }))
+          ]
+        })
+      });
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
+    } catch (err) {
+      return `Gemini Error: ${err.message}`;
+    }
+  }
+
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey || apiKey.includes("YOUR_OPENAI_API_KEY")) {
-    return "Please configure VITE_OPENAI_API_KEY in your .env file to enable the AI advisor.";
+    return "Please configure VITE_GEMINI_API_KEY (Google AI Studio) or VITE_OPENAI_API_KEY in your .env file.";
   }
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -314,8 +338,8 @@ function WatchlistTab({ user }) {
 
 // ── History Tab ────────────────────────────────────────────────────────────
 function HistoryTab({ cards }) {
-  const totalValue = cards.reduce((s, c) => s + c.currentValue, 0);
-  const totalCost = cards.reduce((s, c) => s + c.purchasePrice, 0);
+  const totalValue = cards.reduce((s, c) => s + (c.currentValue * (c.quantity || 1)), 0);
+  const totalCost = cards.reduce((s, c) => s + (c.purchasePrice * (c.quantity || 1)), 0);
 
   // Append today to history
   const data = [...HISTORY, { month: "Today", value: totalValue }];
@@ -391,10 +415,15 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
-  const [newCard, setNewCard] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "" });
+  const [newCard, setNewCard] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
   const [marketQuery, setMarketQuery] = useState("");
   const [marketResult, setMarketResult] = useState("");
   const [marketLoading, setMarketLoading] = useState(false);
+  const [autoPricingLoading, setAutoPricingLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchCatalogLoading, setSearchCatalogLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -414,10 +443,21 @@ export default function App() {
     return unsubscribe;
   }, [user]);
 
+  // Read Chat History from Firestore
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = onSnapshot(doc(db, `users/${user.uid}/chats`, "history"), (docSnap) => {
+      if (docSnap.exists() && docSnap.data().messages) {
+        setChatMessages(docSnap.data().messages);
+      }
+    });
+    return unsubscribe;
+  }, [user]);
+
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
 
-  const totalCost = cards.reduce((s, c) => s + c.purchasePrice, 0);
-  const totalValue = cards.reduce((s, c) => s + c.currentValue, 0);
+  const totalCost = cards.reduce((s, c) => s + (c.purchasePrice * (c.quantity || 1)), 0);
+  const totalValue = cards.reduce((s, c) => s + (c.currentValue * (c.quantity || 1)), 0);
   const totalGain = totalValue - totalCost;
   const totalGainPct = totalCost > 0 ? ((totalGain / totalCost) * 100).toFixed(1) : 0;
 
@@ -437,6 +477,15 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
+  const saveChatHistory = async (messagesList) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, `users/${user.uid}/chats`, "history"), { messages: messagesList });
+    } catch (e) {
+      console.error("Error saving chat history: ", e);
+    }
+  };
+
   const sendChat = async () => {
     if (!chatInput.trim() || chatLoading) return;
     const userMsg = { role: "user", content: chatInput };
@@ -444,11 +493,15 @@ export default function App() {
     setChatMessages(newHistory);
     setChatInput("");
     setChatLoading(true);
-    const ctx = cards.map((c) => `${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
+    await saveChatHistory(newHistory);
+
+    const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
     const system = `You are an expert sports card financial advisor with deep knowledge of PSA/BGS grading, Panini, Topps, Upper Deck, rookie card investing, pop reports, auction results, and market trends.\n\nUser portfolio:\n${ctx}\nTotal invested: ${fmt(totalCost)} | Current value: ${fmt(totalValue)} | Return: ${totalGainPct}%\n\nGive concise, confident, actionable advice. Use dollar figures. Be honest about risks. Speak like a knowledgeable collector friend. Under 200 words.`;
     const reply = await callChatGPT(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
-    setChatMessages([...newHistory, { role: "assistant", content: reply }]);
+    const finalHistory = [...newHistory, { role: "assistant", content: reply }];
+    setChatMessages(finalHistory);
     setChatLoading(false);
+    await saveChatHistory(finalHistory);
   };
 
   const runMarketAnalysis = async () => {
@@ -461,6 +514,45 @@ export default function App() {
     setMarketLoading(false);
   };
 
+  const runAutoPricing = async () => {
+    if (!newCard.player) return;
+    setAutoPricingLoading(true);
+    const system = "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450).";
+    const result = await callChatGPT([{ role: "user", content: `Estimated market value of sports card: ${newCard.year} ${newCard.player} ${newCard.set} ${newCard.grade}` }], system);
+    const cleanedPrice = parseFloat(result.replace(/[^0-9.]/g, '')) || 0.0;
+    setNewCard((prev) => ({ ...prev, currentValue: cleanedPrice }));
+    setAutoPricingLoading(false);
+  };
+
+  const runCatalogSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchCatalogLoading(true);
+    setSearchResults([]);
+    setSearchError("");
+    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    try {
+      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
+      if (result.includes("Please configure VITE_OPENAI_API_KEY")) {
+        setSearchError("OpenAI API Key is not configured correctly in .env");
+        return;
+      }
+      const startIndex = result.indexOf("[");
+      const endIndex = result.lastIndexOf("]") + 1;
+      if (startIndex === -1 || endIndex === 0) {
+        setSearchError("No structured catalog items returned from AI. Response: " + result);
+        return;
+      }
+      const cleanedResult = result.substring(startIndex, endIndex);
+      const parsed = JSON.parse(cleanedResult);
+      setSearchResults(parsed);
+    } catch (e) {
+      console.error("Failed parsing search results: ", e);
+      setSearchError("AI Error: " + e.message);
+    } finally {
+      setSearchCatalogLoading(false);
+    }
+  };
+
   const addCard = async () => {
     if (!newCard.player || !newCard.purchasePrice || !newCard.currentValue) return;
     try {
@@ -469,9 +561,10 @@ export default function App() {
         year: parseInt(newCard.year) || new Date().getFullYear(),
         purchasePrice: parseFloat(newCard.purchasePrice),
         currentValue: parseFloat(newCard.currentValue),
+        quantity: parseInt(newCard.quantity) || 1,
         addedAt: new Date().toISOString()
       });
-      setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "" });
+      setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
       setShowAddCard(false);
     } catch (e) {
       console.error(e);
@@ -573,11 +666,43 @@ export default function App() {
 
             {showAddCard && (
               <div style={{ ...S.card, borderColor: "#c9a84c33", marginBottom: 14 }}>
+                <div style={{ borderBottom: "1px solid #1e1e2e", paddingBottom: 14, marginBottom: 14 }}>
+                  <div style={S.label}>Search Card Catalog</div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
+                    <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+                      {searchCatalogLoading ? "Searching..." : "Search"}
+                    </button>
+                  </div>
+                  {searchResults.length > 0 && (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+                      {searchResults.map((item, idx) => (
+                        <div key={idx} onClick={() => {
+                          setNewCard({
+                            player: item.player,
+                            year: item.year,
+                            set: item.set,
+                            grade: "Raw",
+                            sport: item.sport,
+                            purchasePrice: item.estimatedPrice,
+                            currentValue: item.estimatedPrice,
+                            quantity: "1"
+                          });
+                          setSearchResults([]);
+                        }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                          <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
+                          <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {[
                     { k: "player", ph: "Player" }, { k: "year", ph: "Year" },
                     { k: "set", ph: "Set / Product" }, { k: "grade", ph: "Grade (e.g. PSA 10)" },
                     { k: "purchasePrice", ph: "Purchase Price ($)" }, { k: "currentValue", ph: "Current Value ($)" },
+                    { k: "quantity", ph: "Quantity" },
                   ].map((f) => (
                     <input key={f.k} value={newCard[f.k]} onChange={(e) => setNewCard({ ...newCard, [f.k]: e.target.value })} placeholder={f.ph} style={S.input} />
                   ))}
@@ -587,6 +712,9 @@ export default function App() {
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                   <button onClick={addCard} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                  <button onClick={runAutoPricing} disabled={autoPricingLoading} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, color: S.gold, cursor: "pointer" }}>
+                    {autoPricingLoading ? "Loading Price..." : "AI Auto-Price Estimation"}
+                  </button>
                   <button onClick={() => setShowAddCard(false)} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
@@ -594,17 +722,20 @@ export default function App() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {cards.map((card) => {
-                const gain = card.currentValue - card.purchasePrice;
-                const gainPct = card.purchasePrice > 0 ? ((gain / card.purchasePrice) * 100).toFixed(1) : 0;
+                const qty = card.quantity || 1;
+                const cost = card.purchasePrice * qty;
+                const value = card.currentValue * qty;
+                const gain = value - cost;
+                const gainPct = cost > 0 ? ((gain / cost) * 100).toFixed(1) : 0;
                 return (
                   <div key={card.id} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{card.year} {card.player}</div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{qty}x {card.year} {card.player}</div>
                       <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{card.set} · {card.grade} · {card.sport}</div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 16, fontWeight: 800 }}>{fmt(card.currentValue)}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800 }}>{fmt(value)}</div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: gainColor(gain) }}>{gain >= 0 ? "+" : ""}{fmt(gain)} ({gainPct}%)</div>
                       </div>
                       <button onClick={() => removeCard(card.id)} style={{ background: "none", border: "none", color: "#3a3a5e", cursor: "pointer", fontSize: 18 }}>×</button>

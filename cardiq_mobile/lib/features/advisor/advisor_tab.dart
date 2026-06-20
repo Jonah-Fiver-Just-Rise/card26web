@@ -15,7 +15,7 @@ class AdvisorTab extends StatefulWidget {
 
 class _AdvisorTabState extends State<AdvisorTab> {
   final _messageController = TextEditingController();
-  final List<Map<String, String>> _messages = [
+  List<Map<String, String>> _messages = [
     {
       "role": "assistant",
       "content": "Hey! I'm your CardIQ financial advisor. Ask me anything about valuations, buy/sell signals, grading strategy, or market trends."
@@ -23,15 +23,56 @@ class _AdvisorTabState extends State<AdvisorTab> {
   ];
   bool _loading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadChatHistory();
+  }
+
+  // Load chat history from Firestore
+  void _loadChatHistory() {
+    FirebaseFirestore.instance
+        .doc('users/${widget.uid}/chats/history')
+        .snapshots()
+        .listen((docSnap) {
+      if (docSnap.exists && docSnap.data()?['messages'] != null) {
+        final List<dynamic> loadedRaw = docSnap.data()?['messages'];
+        setState(() {
+          _messages = loadedRaw
+              .map((m) => {
+                    "role": m["role"]?.toString() ?? "",
+                    "content": m["content"]?.toString() ?? ""
+                  })
+              .toList();
+        });
+      }
+    });
+  }
+
+  // Save chat history to Firestore
+  Future<void> _saveChatHistory(List<Map<String, String>> newMessages) async {
+    try {
+      await FirebaseFirestore.instance
+          .doc('users/${widget.uid}/chats/history')
+          .set({'messages': newMessages});
+    } catch (e) {
+      debugPrint("Error saving chat history: $e");
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _loading) return;
 
+    final updatedMessages = List<Map<String, String>>.from(_messages);
+    updatedMessages.add({"role": "user", "content": text});
+
     setState(() {
-      _messages.add({"role": "user", "content": text});
+      _messages = updatedMessages;
       _messageController.clear();
       _loading = true;
     });
+    await _saveChatHistory(updatedMessages);
 
     try {
       // Fetch portfolio items to inject into system prompt context
@@ -41,19 +82,22 @@ class _AdvisorTabState extends State<AdvisorTab> {
       
       final cardsStr = snapshot.docs.map((doc) {
         final data = doc.data();
-        return "${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
+        final qty = data['quantity'] ?? 1;
+        return "$qty\x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
       }).join("\n");
 
-      // Replace VITE_OPENAI_API_KEY placeholder or get it via your configuration mechanism
-      const apiKey = "YOUR_OPENAI_API_KEY_HERE"; 
+      const apiKey = "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"; 
 
       if (apiKey == "YOUR_OPENAI_API_KEY_HERE") {
-        setState(() {
-          _messages.add({
-            "role": "assistant",
-            "content": "Please configure your OpenAI API Key inside `lib/features/advisor/advisor_tab.dart` to test advisor responses."
-          });
+        final errorMessages = List<Map<String, String>>.from(_messages);
+        errorMessages.add({
+          "role": "assistant",
+          "content": "Please configure your OpenAI API Key inside `lib/features/advisor/advisor_tab.dart` to test advisor responses."
         });
+        setState(() {
+          _messages = errorMessages;
+        });
+        await _saveChatHistory(errorMessages);
         return;
       }
 
@@ -78,13 +122,20 @@ class _AdvisorTabState extends State<AdvisorTab> {
       final data = jsonDecode(res.body);
       final reply = data['choices'][0]['message']['content'] ?? "No response.";
 
+      final finalMessages = List<Map<String, String>>.from(_messages);
+      finalMessages.add({"role": "assistant", "content": reply});
+
       setState(() {
-        _messages.add({"role": "assistant", "content": reply});
+        _messages = finalMessages;
       });
+      await _saveChatHistory(finalMessages);
     } catch (e) {
+      final errorMessages = List<Map<String, String>>.from(_messages);
+      errorMessages.add({"role": "assistant", "content": "Error calling AI: $e"});
       setState(() {
-        _messages.add({"role": "assistant", "content": "Error calling AI: $e"});
+        _messages = errorMessages;
       });
+      await _saveChatHistory(errorMessages);
     } finally {
       setState(() {
         _loading = false;
