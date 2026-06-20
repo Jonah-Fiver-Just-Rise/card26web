@@ -3,9 +3,22 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'core/constants/app_colors.dart';
+import 'core/constants/app_constants.dart';
+import 'core/theme/app_theme.dart';
+import 'widgets/glass_card.dart';
+import 'widgets/custom_button.dart';
+import 'core/models/card_model.dart';
+
+// Tabs
+import 'features/portfolio/portfolio_tab.dart';
+import 'features/history/history_tab.dart';
+import 'features/watchlist/watchlist_tab.dart';
+import 'features/grading/grading_tab.dart';
+import 'features/advisor/advisor_tab.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize Firebase (will boot using local google-services config files on build)
   try {
     await Firebase.initializeApp();
   } catch (e) {
@@ -20,39 +33,9 @@ class CardIqApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CardIQ',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0A0A0F),
-        primaryColor: const Color(0xFFC9A84C),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFC9A84C),
-          secondary: Color(0xFF6B6B8A),
-          surface: Color(0xFF111118),
-        ),
-        cardTheme: const CardTheme(
-          color: Color(0xFF111118),
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: Color(0xFF1E1E2E)),
-            borderRadius: BorderRadius.all(Radius.circular(10)),
-          ),
-        ),
-        inputDecorationTheme: const InputDecorationTheme(
-          filled: true,
-          fillColor: Color(0xFF0D0D18),
-          enabledBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: Color(0xFF2A2A3E)),
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderSide: BorderSide(color: Color(0xFFC9A84C)),
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-          ),
-          labelStyle: TextStyle(color: Color(0xFF6B6B8A)),
-          hintStyle: TextStyle(color: Color(0xFF3A3A5E)),
-        ),
-      ),
+      theme: AppTheme.darkTheme,
       home: const AuthGate(),
     );
   }
@@ -69,7 +52,7 @@ class AuthGate extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(color: Color(0xFFC9A84C)),
+              child: CircularProgressIndicator(color: AppColors.gold),
             ),
           );
         }
@@ -130,29 +113,31 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF111118),
-              border: Border.all(color: const Color(0xFF2A2A3E)),
-              borderRadius: BorderRadius.circular(12),
-            ),
+          child: GlassCard(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  "CardIQ",
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1,
+                RichText(
+                  text: const TextSpan(
+                    text: "Card",
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -1,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: "IQ",
+                        style: TextStyle(color: AppColors.gold),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  "Sports Card Investment & AI Advisor",
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6B6B8A)),
+                  AppConstants.appSubtitle,
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                 ),
                 const SizedBox(height: 24),
                 TextField(
@@ -170,37 +155,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 14),
                   Text(
                     _errorMessage,
-                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                    style: const TextStyle(color: AppColors.lossRed, fontSize: 13),
                     textAlign: TextAlign.center,
                   ),
                 ],
                 const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFC9A84C),
-                      foregroundColor: const Color(0xFF0A0A0F),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: _loading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Color(0xFF0A0A0F),
-                            ),
-                          )
-                        : Text(
-                            _isSignUp ? "Create Account" : "Sign In",
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                  ),
+                CustomButton(
+                  text: _isSignUp ? "Create Account" : "Sign In",
+                  loading: _loading,
+                  onPressed: _submit,
                 ),
                 const SizedBox(height: 16),
                 GestureDetector(
@@ -213,12 +176,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: RichText(
                     text: TextSpan(
                       text: _isSignUp ? "Already have an account? " : "New to CardIQ? ",
-                      style: const TextStyle(color: Color(0xFF6B6B8A), fontSize: 13),
+                      style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
                       children: [
                         TextSpan(
                           text: _isSignUp ? "Sign In" : "Sign Up",
                           style: const TextStyle(
-                            color: Color(0xFFC9A84C),
+                            color: AppColors.gold,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -245,61 +208,65 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _tabs = [
-    const Center(child: Text("Portfolio Tab (Loads Firestore Collection)")),
-    const Center(child: Text("History Analytics Chart")),
-    const Center(child: Text("Watchlist Favorites")),
-    const Center(child: Text("Grading ROI Calculator")),
-    const Center(child: Text("AI Advisor Chat")),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0F),
-        title: const Text(
-          "CardIQ",
-          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.5),
-        ),
-        actions: [
-          if (user != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0),
-              child: Center(
-                child: Text(
-                  user.email ?? "",
-                  style: const TextStyle(color: Color(0xFF6B6B8A), fontSize: 12),
+    if (user == null) return const LoginScreen();
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users/${user.uid}/portfolios')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final cards = snapshot.hasData
+            ? snapshot.data!.docs.map((doc) => CardModel.fromFirestore(doc)).toList()
+            : <CardModel>[];
+
+        final List<Widget> tabs = [
+          PortfolioTab(uid: user.uid),
+          HistoryTab(cards: cards),
+          WatchlistTab(uid: user.uid),
+          const GradingTab(),
+          AdvisorTab(uid: user.uid),
+        ];
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text(AppConstants.appName),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                child: Center(
+                  child: Text(
+                    user.email ?? "",
+                    style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                  ),
                 ),
               ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.logout, size: 20),
-            onPressed: () => FirebaseAuth.instance.signOut(),
+              IconButton(
+                icon: const Icon(Icons.logout, size: 20),
+                onPressed: () => FirebaseAuth.instance.signOut(),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _tabs[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: const Color(0xFF111118),
-        selectedItemColor: const Color(0xFFC9A84C),
-        unselectedItemColor: const Color(0xFF6B6B8A),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Portfolio'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.star), label: 'Watchlist'),
-          BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'Grading'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Advisor'),
-        ],
-      ),
+          body: tabs[_currentIndex],
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.folder), label: 'Portfolio'),
+              BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'History'),
+              BottomNavigationBarItem(icon: Icon(Icons.star), label: 'Watchlist'),
+              BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'Grading'),
+              BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Advisor'),
+            ],
+          ),
+        );
+      },
     );
   }
 }
