@@ -32,6 +32,8 @@ const firebaseConfig = {
 
 https://aistudio.google.com/
 
+AQ.Ab8RN6LxNBYiHsTUrtrgTceiOwTk8XOJy9Rd6tW6sEbZjJHo7w
+
 
 For Android:
 Go to your Firebase Console.
@@ -40,6 +42,9 @@ Under Your apps, click Add app and select the Android platform icon.
 Set the package name to com.justrise.cardiq.cardiq_mobile (matching your organization package).
 Download the google-services.json file.
 Place this file inside: cardiq_mobile/android/app/google-services.json
+
+com.justrise.cardiq.cardiq_mobile
+CardIQ
 
 
 For iOS:

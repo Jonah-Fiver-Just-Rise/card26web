@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "38075516879",
+    "project_id": "cardiq-f2cbb",
+    "storage_bucket": "cardiq-f2cbb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:38075516879:android:018f501c68d9300bc4f4ba",
+        "android_client_info": {
+          "package_name": "com.justrise.cardiq.cardiq_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfbTsqW_ZQabjUUjYDd05N9g2JNfEiziM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
