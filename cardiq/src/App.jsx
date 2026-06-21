@@ -48,31 +48,128 @@ const S = { // shared inline style tokens
   muted: "#6b6b8a",
 };
 
+const renderMarkdown = (text) => {
+  if (!text) return "";
+  const lines = text.split("\n");
+  return lines.map((line, lineIdx) => {
+    let cleanLine = line.trim();
+    if (!cleanLine) return <div key={lineIdx} style={{ height: 8 }} />;
+    
+    const isBullet = cleanLine.startsWith("* ") || cleanLine.startsWith("- ");
+    const isNumbered = /^\d+\.\s/.test(cleanLine);
+    
+    if (isBullet) {
+      cleanLine = cleanLine.substring(2);
+    } else if (isNumbered) {
+      const match = cleanLine.match(/^(\d+\.)\s(.*)/);
+      if (match) {
+        cleanLine = match[2];
+      }
+    }
+    
+    const parts = cleanLine.split(/\*\*([^*]+)\*\*/g);
+    const parsedElements = parts.map((part, partIdx) => {
+      if (partIdx % 2 === 1) {
+        return <strong key={partIdx} style={{ color: S.gold, fontWeight: 700 }}>{part}</strong>;
+      }
+      return part;
+    });
+    
+    if (isBullet) {
+      return (
+        <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
+          <span style={{ color: S.gold }}>•</span>
+          <div>{parsedElements}</div>
+        </div>
+      );
+    }
+    
+    if (isNumbered) {
+      return (
+        <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
+          <span style={{ color: S.gold, fontWeight: 700 }}>{line.match(/^\d+\./)?.[0] || ""}</span>
+          <div>{parsedElements}</div>
+        </div>
+      );
+    }
+    
+    return (
+      <p key={lineIdx} style={{ margin: "0 0 8px 0", lineHeight: 1.6, fontSize: 13.5 }}>
+        {parsedElements}
+      </p>
+    );
+  });
+};
+
 // ── Secure Client-Side API integration (Supports Gemini with OpenAI fallback) ──
+const QUOTA_EXCEEDED = "__QUOTA_EXCEEDED__";
+
+const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+};
+
 const callChatGPT = async (messages, system) => {
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey && !geminiKey.includes("YOUR_GEMINI_API_KEY") && geminiKey.trim() !== "") {
-    const models = ["gemini-flash-latest", "gemini-1.5-flash"];
+    const models = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
     let lastError = null;
+
+    // Gemini requires strict user/model alternation, starting with "user"
+    // Build a clean alternating conversation from messages
+    const buildGeminiContents = (msgs) => {
+      const mapped = msgs.map(m => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }]
+      }));
+
+      // Drop leading "model" turns (Gemini must start with user)
+      let start = 0;
+      while (start < mapped.length && mapped[start].role === "model") start++;
+      const trimmed = mapped.slice(start);
+
+      // Merge consecutive same-role turns to enforce strict alternation
+      const merged = [];
+      for (const turn of trimmed) {
+        if (merged.length > 0 && merged[merged.length - 1].role === turn.role) {
+          merged[merged.length - 1].parts[0].text += "\n\n" + turn.parts[0].text;
+        } else {
+          merged.push({ role: turn.role, parts: [{ text: turn.parts[0].text }] });
+        }
+      }
+      return merged;
+    };
 
     for (const model of models) {
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "X-goog-api-key": geminiKey.trim()
-          },
-          body: JSON.stringify({
-            contents: [
-              { role: "user", parts: [{ text: `System Prompt Instructions: ${system}` }] },
-              ...messages.map(m => ({
-                role: m.role === "assistant" ? "model" : "user",
-                parts: [{ text: m.content }]
-              }))
-            ]
-          })
-        });
+        const res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-goog-api-key": geminiKey.trim()
+            },
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: system }]
+              },
+              contents: buildGeminiContents(messages),
+              generationConfig: {
+                maxOutputTokens: 1024,
+                temperature: 0.7
+              }
+            })
+          }
+        );
+
+        // 429 = quota exceeded — stop immediately, no point trying other models
+        if (res.status === 429) {
+          console.warn(`Gemini quota exceeded (429).`);
+          return QUOTA_EXCEEDED;
+        }
 
         const data = await res.json();
         if (!res.ok) {
@@ -81,12 +178,18 @@ const callChatGPT = async (messages, system) => {
         if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
           return data.candidates[0].content.parts[0].text;
         }
+        throw new Error("Empty response from model.");
       } catch (err) {
-        console.warn(`Model ${model} failed:`, err);
-        lastError = err;
+        if (err.name === "AbortError") {
+          console.warn(`Model ${model} timed out.`);
+          lastError = new Error("Request timed out after 30s. Please try again.");
+        } else {
+          console.warn(`Model ${model} failed:`, err);
+          lastError = err;
+        }
       }
     }
-    return `Gemini Error: ${lastError ? lastError.message : "Service Unavailable (503). Please try again."}`;
+    return `⚠️ ${lastError ? lastError.message : "Service Unavailable. Please try again."}`;
   }
 
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
@@ -94,7 +197,7 @@ const callChatGPT = async (messages, system) => {
     return "Please configure VITE_GEMINI_API_KEY (Google AI Studio) or VITE_OPENAI_API_KEY in your .env file.";
   }
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,12 +212,59 @@ const callChatGPT = async (messages, system) => {
         ]
       }),
     });
+    if (res.status === 429) return QUOTA_EXCEEDED;
     const data = await res.json();
     return data.choices?.[0]?.message?.content || "No response received.";
   } catch (err) {
-    return `AI Error: ${err.message}`;
+    return `⚠️ AI Error: ${err.name === "AbortError" ? "Request timed out. Please try again." : err.message}`;
   }
 };
+
+// ── Quota Exceeded Banner ──────────────────────────────────────────────────
+const QuotaBanner = () => (
+  <div style={{
+    background: "linear-gradient(135deg, #2a1a00, #1a1000)",
+    border: "1px solid #c9a84c",
+    borderRadius: 10,
+    padding: "16px 20px",
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 14,
+    marginTop: 8
+  }}>
+    <div style={{ fontSize: 22, lineHeight: 1 }}>🔑</div>
+    <div style={{ flex: 1 }}>
+      <div style={{ color: "#c9a84c", fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
+        AI Quota Expired
+      </div>
+      <div style={{ color: "#a89060", fontSize: 13, lineHeight: 1.6 }}>
+        Your Gemini API free-tier quota has been used up for today. To continue using AI features:
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        <a
+          href="https://aistudio.google.com/apikey"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            background: "#c9a84c",
+            color: "#0a0a0f",
+            borderRadius: 6,
+            padding: "7px 16px",
+            fontSize: 12,
+            fontWeight: 800,
+            textDecoration: "none",
+            display: "inline-block"
+          }}
+        >
+          Get New API Key →
+        </a>
+        <div style={{ color: "#6b6b8a", fontSize: 12, display: "flex", alignItems: "center" }}>
+          Quota resets daily at midnight (Google time)
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 // ── Custom Tooltip for chart ───────────────────────────────────────────────
 const ChartTooltip = ({ active, payload, label }) => {
@@ -323,7 +473,7 @@ function GradingTab() {
       {aiAnalysis && (
         <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
           <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>AI Grading Advisor</div>
-          <div style={{ fontSize: 14, lineHeight: 1.75, color: "#c8c4b8" }}>{aiAnalysis}</div>
+          <div style={{ fontSize: 14, lineHeight: 1.75, color: "#c8c4b8" }}>{renderMarkdown(aiAnalysis)}</div>
         </div>
       )}
     </div>
@@ -416,10 +566,15 @@ function WatchlistTab({ user }) {
     if (!ebayQuery.trim() || ebayLoading) return;
     setEbayLoading(true);
     setEbayResult("");
-    const system = `You are a sports card pricing expert simulating eBay sold listing data. Based on your knowledge of the market, provide realistic recent sold prices for the card queried. Format as: 3–5 recent "sold" prices with dates, a 30-day average, and a trend note. Be specific and realistic. Under 150 words.`;
-    const res = await callChatGPT([{ role: "user", content: `Simulate recent eBay sold listings for: ${ebayQuery}` }], system);
-    setEbayResult(res);
-    setEbayLoading(false);
+    try {
+      const system = `You are a sports card pricing expert simulating eBay sold listing data. Based on your knowledge of the market, provide realistic recent sold prices for the card queried. Format as: 3–5 recent "sold" prices with dates, a 30-day average, and a trend note. Be specific and realistic. Under 150 words.`;
+      const res = await callChatGPT([{ role: "user", content: `Simulate recent eBay sold listings for: ${ebayQuery}` }], system);
+      setEbayResult(res);
+    } catch (err) {
+      setEbayResult(`⚠️ Failed to fetch prices: ${err.message}`);
+    } finally {
+      setEbayLoading(false);
+    }
   };
 
   return (
@@ -559,7 +714,7 @@ function WatchlistTab({ user }) {
         {!ebayLoading && ebayResult && (
           <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
             <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
-            <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8", whiteSpace: "pre-wrap" }}>{ebayResult}</div>
+            <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(ebayResult)}</div>
           </div>
         )}
       </div>
@@ -729,6 +884,8 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchCatalogLoading, setSearchCatalogLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [firebaseError, setFirebaseError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -800,23 +957,34 @@ export default function App() {
     setChatLoading(true);
     await saveChatHistory(newHistory);
 
-    const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
-    const system = `You are an expert sports card financial advisor with deep knowledge of PSA/BGS grading, Panini, Topps, Upper Deck, rookie card investing, pop reports, auction results, and market trends.\n\nUser portfolio:\n${ctx}\nTotal invested: ${fmt(totalCost)} | Current value: ${fmt(totalValue)} | Return: ${totalGainPct}%\n\nGive concise, confident, actionable advice. Use dollar figures. Be honest about risks. Speak like a knowledgeable collector friend. Under 200 words.`;
-    const reply = await callChatGPT(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
-    const finalHistory = [...newHistory, { role: "assistant", content: reply }];
-    setChatMessages(finalHistory);
-    setChatLoading(false);
-    await saveChatHistory(finalHistory);
+    try {
+      const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
+      const system = `You are an expert sports card financial advisor with deep knowledge of PSA/BGS grading, Panini, Topps, Upper Deck, rookie card investing, pop reports, auction results, and market trends.\n\nUser portfolio:\n${ctx}\nTotal invested: ${fmt(totalCost)} | Current value: ${fmt(totalValue)} | Return: ${totalGainPct}%\n\nGive concise, confident, actionable advice. Use dollar figures. Be honest about risks. Speak like a knowledgeable collector friend. Under 200 words.`;
+      const reply = await callChatGPT(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
+      const finalHistory = [...newHistory, { role: "assistant", content: reply }];
+      setChatMessages(finalHistory);
+      await saveChatHistory(finalHistory);
+    } catch (err) {
+      const errorHistory = [...newHistory, { role: "assistant", content: `⚠️ Something went wrong: ${err.message}. Please try again.` }];
+      setChatMessages(errorHistory);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   const runMarketAnalysis = async () => {
     if (!marketQuery.trim() || marketLoading) return;
     setMarketLoading(true);
     setMarketResult("");
-    const system = `You are a sports card market analyst. Give detailed analysis: current price ranges, trend direction, key value drivers, PSA 9 vs 10 grade premium spread, and a clear BUY / HOLD / SELL recommendation with reasoning. Be specific with numbers. Under 250 words.`;
-    const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${marketQuery}` }], system);
-    setMarketResult(result);
-    setMarketLoading(false);
+    try {
+      const system = `You are a sports card market analyst. Give detailed analysis: current price ranges, trend direction, key value drivers, PSA 9 vs 10 grade premium spread, and a clear BUY / HOLD / SELL recommendation with reasoning. Be specific with numbers. Under 250 words.`;
+      const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${marketQuery}` }], system);
+      setMarketResult(result);
+    } catch (err) {
+      setMarketResult(`⚠️ Failed to fetch analysis: ${err.message}`);
+    } finally {
+      setMarketLoading(false);
+    }
   };
 
   const runAutoPricing = async () => {
@@ -860,6 +1028,7 @@ export default function App() {
 
   const addCard = async () => {
     if (!newCard.player || !newCard.purchasePrice || !newCard.currentValue) return;
+    setFirebaseError("");
     try {
       await addDoc(collection(db, `users/${user.uid}/portfolios`), {
         ...newCard,
@@ -874,16 +1043,21 @@ export default function App() {
       setSearchResults([]);
       setSearchError("");
       setShowAddCard(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (e) {
-      console.error(e);
+      console.error("Firestore addCard error:", e);
+      setFirebaseError(`❌ Failed to save card: ${e.message}. Check Firestore rules at console.firebase.google.com`);
     }
   };
 
   const removeCard = async (id) => {
+    setFirebaseError("");
     try {
       await deleteDoc(doc(db, `users/${user.uid}/portfolios`, id));
     } catch (e) {
-      console.error(e);
+      console.error("Firestore removeCard error:", e);
+      setFirebaseError(`❌ Failed to delete card: ${e.message}`);
     }
   };
 
@@ -925,7 +1099,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: 920, margin: "0 auto", paddingBottom: 60 }}>
+    <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: 920, margin: "0 auto", paddingBottom: 60, textAlign: "left" }}>
 
       {/* Header */}
       <div style={{ padding: "24px 24px 0", borderBottom: "1px solid #1e1e2e" }}>
@@ -966,6 +1140,29 @@ export default function App() {
                 </div>
               ))}
             </div>
+
+            {/* Firebase error banner */}
+            {firebaseError && (
+              <div style={{ background: "#1a0808", border: "1px solid #ef4444", borderRadius: 8, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <div style={{ fontSize: 16 }}>❌</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: "#ef4444", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Firebase Error</div>
+                  <div style={{ color: "#c87070", fontSize: 12, lineHeight: 1.6 }}>{firebaseError}</div>
+                  <div style={{ marginTop: 8 }}>
+                    <a href="https://console.firebase.google.com/project/cardiq-f2cbb/firestore/rules" target="_blank" rel="noreferrer" style={{ color: S.gold, fontSize: 12, fontWeight: 700 }}>Fix Firestore Rules →</a>
+                  </div>
+                </div>
+                <button onClick={() => setFirebaseError("")} style={{ background: "none", border: "none", color: "#6b6b8a", cursor: "pointer", fontSize: 16 }}>×</button>
+              </div>
+            )}
+
+            {/* Save success toast */}
+            {saveSuccess && (
+              <div style={{ background: "#081a0f", border: "1px solid #22c55e", borderRadius: 8, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 16 }}>✅</span>
+                <span style={{ color: "#22c55e", fontSize: 13, fontWeight: 700 }}>Card saved to your portfolio!</span>
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ ...S.label, marginBottom: 0 }}>Collection</span>
@@ -1106,7 +1303,7 @@ export default function App() {
               {chatMessages.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
                   <div style={{ maxWidth: "80%", background: m.role === "user" ? S.gold : "#111118", border: m.role === "assistant" ? "1px solid #1e1e2e" : "none", borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "12px 16px", fontSize: 14, lineHeight: 1.65, color: m.role === "user" ? S.bg : S.text, fontWeight: m.role === "user" ? 600 : 400 }}>
-                    {m.content}
+                    {m.role === "user" ? m.content : renderMarkdown(m.content)}
                   </div>
                 </div>
               ))}
@@ -1157,7 +1354,7 @@ export default function App() {
             {!marketLoading && marketResult ? (
               <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
                 <div style={{ ...S.label, color: S.gold, marginBottom: 12 }}>Analysis: {marketQuery}</div>
-                <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8", whiteSpace: "pre-wrap" }}>{marketResult}</div>
+                <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(marketResult)}</div>
               </div>
             ) : !marketLoading && (
               <div style={{ border: "1px dashed #2a2a3e", borderRadius: 12, padding: 40, textAlign: "center", color: "#3a3a5e" }}>

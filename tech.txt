@@ -54,3 +54,13 @@ Download the GoogleService-Info.plist file.
 Place this file inside: cardiq_mobile/ios/Runner/GoogleService-Info.plist (and open the iOS folder in Xcode to drag and link this file into the Runner folder).
 
 tech.txt
+
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
