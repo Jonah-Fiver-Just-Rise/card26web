@@ -25,3 +25,8 @@ dist-ssr
 
 # Project guidelines (personal/developer brains)
 Guidline_task_update/
+
+# Environment variables (NEVER commit these)
+.env
+.env.local
+.env.production
