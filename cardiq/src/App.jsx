@@ -158,7 +158,7 @@ const callChatGPT = async (messages, system) => {
               },
               contents: buildGeminiContents(messages),
               generationConfig: {
-                maxOutputTokens: 1024,
+                maxOutputTokens: 2048,
                 temperature: 0.7
               }
             })
@@ -223,45 +223,19 @@ const callChatGPT = async (messages, system) => {
 // ── Quota Exceeded Banner ──────────────────────────────────────────────────
 const QuotaBanner = () => (
   <div style={{
-    background: "linear-gradient(135deg, #2a1a00, #1a1000)",
+    background: "#1a1200",
     border: "1px solid #c9a84c",
-    borderRadius: 10,
-    padding: "16px 20px",
+    borderRadius: 8,
+    padding: "12px 16px",
+    marginTop: 8,
     display: "flex",
-    alignItems: "flex-start",
-    gap: 14,
-    marginTop: 8
+    alignItems: "center",
+    gap: 10
   }}>
-    <div style={{ fontSize: 22, lineHeight: 1 }}>🔑</div>
-    <div style={{ flex: 1 }}>
-      <div style={{ color: "#c9a84c", fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
-        AI Quota Expired
-      </div>
-      <div style={{ color: "#a89060", fontSize: 13, lineHeight: 1.6 }}>
-        Your Gemini API free-tier quota has been used up for today. To continue using AI features:
-      </div>
-      <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-        <a
-          href="https://aistudio.google.com/apikey"
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            background: "#c9a84c",
-            color: "#0a0a0f",
-            borderRadius: 6,
-            padding: "7px 16px",
-            fontSize: 12,
-            fontWeight: 800,
-            textDecoration: "none",
-            display: "inline-block"
-          }}
-        >
-          Get New API Key →
-        </a>
-        <div style={{ color: "#6b6b8a", fontSize: 12, display: "flex", alignItems: "center" }}>
-          Quota resets daily at midnight (Google time)
-        </div>
-      </div>
+    <span style={{ fontSize: 18 }}>⏳</span>
+    <div>
+      <span style={{ color: "#c9a84c", fontWeight: 700, fontSize: 13 }}>AI Quota Exceeded — </span>
+      <span style={{ color: "#a89060", fontSize: 13 }}>Your AI quota has been used up. Please try again after 24 hours.</span>
     </div>
   </div>
 );
@@ -327,21 +301,28 @@ function GradingTab() {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
-    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), 'rawValue' (number estimation), 'psa10Value' (number estimation), and 'psa9Value' (number estimation). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'rawValue' (number), 'psa10Value' (number), 'psa9Value' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"rawValue\":800,\"psa10Value\":4500,\"psa9Value\":1500}]";
     try {
-      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
-      const startIndex = result.indexOf("[");
-      const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex === 0) {
-        setSearchError("No structured catalog items returned from AI.");
+      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
+      if (result === QUOTA_EXCEEDED) {
+        setSearchError("QUOTA_EXCEEDED");
         return;
       }
-      const cleanedResult = result.substring(startIndex, endIndex);
-      const parsed = JSON.parse(cleanedResult);
+      const startIndex = result.indexOf("[");
+      const endIndex = result.lastIndexOf("]") + 1;
+      if (startIndex === -1 || endIndex <= 0) {
+        setSearchError("No results returned. Try a more specific search (e.g. '2003 LeBron James Topps').");
+        return;
+      }
+      const parsed = JSON.parse(result.substring(startIndex, endIndex));
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setSearchError("No matching cards found. Try a different search.");
+        return;
+      }
       setSearchResults(parsed);
     } catch (e) {
       console.error("Failed parsing search results: ", e);
-      setSearchError("AI Error: " + e.message);
+      setSearchError("Parse error — try again.");
     } finally {
       setSearchCatalogLoading(false);
     }
@@ -392,9 +373,9 @@ function GradingTab() {
           </div>
         )}
         {searchError && (
-          <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
-            {searchError}
-          </div>
+          searchError === "QUOTA_EXCEEDED"
+            ? <QuotaBanner />
+            : <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>{searchError}</div>
         )}
         {!searchCatalogLoading && searchResults.length > 0 && (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
@@ -510,21 +491,28 @@ function WatchlistTab({ user }) {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
-    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
     try {
-      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
-      const startIndex = result.indexOf("[");
-      const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex === 0) {
-        setSearchError("No structured catalog items returned from AI.");
+      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
+      if (result === QUOTA_EXCEEDED) {
+        setSearchError("QUOTA_EXCEEDED");
         return;
       }
-      const cleanedResult = result.substring(startIndex, endIndex);
-      const parsed = JSON.parse(cleanedResult);
+      const startIndex = result.indexOf("[");
+      const endIndex = result.lastIndexOf("]") + 1;
+      if (startIndex === -1 || endIndex <= 0) {
+        setSearchError("No results returned. Try a more specific search.");
+        return;
+      }
+      const parsed = JSON.parse(result.substring(startIndex, endIndex));
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setSearchError("No matching cards found. Try a different search.");
+        return;
+      }
       setSearchResults(parsed);
     } catch (e) {
       console.error("Failed parsing search results: ", e);
-      setSearchError("AI Error: " + e.message);
+      setSearchError("Parse error — try again.");
     } finally {
       setSearchCatalogLoading(false);
     }
@@ -1002,25 +990,28 @@ export default function App() {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
-    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
     try {
-      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
-      if (result.includes("Please configure VITE_OPENAI_API_KEY")) {
-        setSearchError("OpenAI API Key is not configured correctly in .env");
+      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
+      if (result === QUOTA_EXCEEDED) {
+        setSearchError("QUOTA_EXCEEDED");
         return;
       }
       const startIndex = result.indexOf("[");
       const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex === 0) {
-        setSearchError("No structured catalog items returned from AI. Response: " + result);
+      if (startIndex === -1 || endIndex <= 0) {
+        setSearchError("No results returned. Try a more specific search (e.g. '2003 LeBron James Topps').");
         return;
       }
-      const cleanedResult = result.substring(startIndex, endIndex);
-      const parsed = JSON.parse(cleanedResult);
+      const parsed = JSON.parse(result.substring(startIndex, endIndex));
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        setSearchError("No matching cards found. Try a different search.");
+        return;
+      }
       setSearchResults(parsed);
     } catch (e) {
       console.error("Failed parsing search results: ", e);
-      setSearchError("AI Error: " + e.message);
+      setSearchError("Parse error — try again with a different search term.");
     } finally {
       setSearchCatalogLoading(false);
     }
