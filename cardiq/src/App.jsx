@@ -103,6 +103,7 @@ const renderMarkdown = (text) => {
 
 // ── Secure Client-Side API integration (Supports Gemini with OpenAI fallback) ──
 const QUOTA_EXCEEDED = "__QUOTA_EXCEEDED__";
+const INVALID_KEY = "__INVALID_KEY__";
 
 const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
   const controller = new AbortController();
@@ -165,10 +166,14 @@ const callChatGPT = async (messages, system) => {
           }
         );
 
-        // 429 = quota exceeded — stop immediately, no point trying other models
+        // 429 = quota exceeded, 401 = invalid key — stop immediately
         if (res.status === 429) {
           console.warn(`Gemini quota exceeded (429).`);
           return QUOTA_EXCEEDED;
+        }
+        if (res.status === 401) {
+          console.error(`Gemini API key invalid (401). Check VITE_GEMINI_API_KEY in Vercel env vars.`);
+          return INVALID_KEY;
         }
 
         const data = await res.json();
@@ -236,6 +241,29 @@ const QuotaBanner = () => (
     <div>
       <span style={{ color: "#c9a84c", fontWeight: 700, fontSize: 13 }}>AI Quota Exceeded — </span>
       <span style={{ color: "#a89060", fontSize: 13 }}>Your AI quota has been used up. Please try again after 24 hours.</span>
+    </div>
+  </div>
+);
+
+// ── Invalid API Key Banner ──────────────────────────────────────────
+const InvalidKeyBanner = () => (
+  <div style={{
+    background: "#1a0808",
+    border: "1px solid #ef4444",
+    borderRadius: 8,
+    padding: "12px 16px",
+    marginTop: 8,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10
+  }}>
+    <span style={{ fontSize: 18 }}>🔑</span>
+    <div>
+      <div style={{ color: "#ef4444", fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Invalid API Key (401 Unauthorized)</div>
+      <div style={{ color: "#c87070", fontSize: 12, lineHeight: 1.6 }}>
+        The Gemini API key is missing or invalid on this deployment.<br />
+        Go to <strong>Vercel → Project Settings → Environment Variables</strong> and add <code style={{ background: "#2a0a0a", padding: "1px 5px", borderRadius: 3 }}>VITE_GEMINI_API_KEY</code>, then redeploy.
+      </div>
     </div>
   </div>
 );
@@ -308,6 +336,10 @@ function GradingTab() {
         setSearchError("QUOTA_EXCEEDED");
         return;
       }
+      if (result === INVALID_KEY) {
+        setSearchError("INVALID_KEY");
+        return;
+      }
       const startIndex = result.indexOf("[");
       const endIndex = result.lastIndexOf("]") + 1;
       if (startIndex === -1 || endIndex <= 0) {
@@ -375,7 +407,9 @@ function GradingTab() {
         {searchError && (
           searchError === "QUOTA_EXCEEDED"
             ? <QuotaBanner />
-            : <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>{searchError}</div>
+            : searchError === "INVALID_KEY"
+              ? <InvalidKeyBanner />
+              : <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>{searchError}</div>
         )}
         {!searchCatalogLoading && searchResults.length > 0 && (
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
@@ -452,10 +486,16 @@ function GradingTab() {
       </button>
 
       {aiAnalysis && (
-        <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-          <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>AI Grading Advisor</div>
-          <div style={{ fontSize: 14, lineHeight: 1.75, color: "#c8c4b8" }}>{renderMarkdown(aiAnalysis)}</div>
-        </div>
+        aiAnalysis === QUOTA_EXCEEDED
+          ? <QuotaBanner />
+          : aiAnalysis === INVALID_KEY
+            ? <InvalidKeyBanner />
+            : (
+              <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
+                <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>AI Grading Advisor</div>
+                <div style={{ fontSize: 14, lineHeight: 1.75, color: "#c8c4b8" }}>{renderMarkdown(aiAnalysis)}</div>
+              </div>
+            )
       )}
     </div>
   );
@@ -496,6 +536,10 @@ function WatchlistTab({ user }) {
       const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
       if (result === QUOTA_EXCEEDED) {
         setSearchError("QUOTA_EXCEEDED");
+        return;
+      }
+      if (result === INVALID_KEY) {
+        setSearchError("INVALID_KEY");
         return;
       }
       const startIndex = result.indexOf("[");
@@ -601,9 +645,15 @@ function WatchlistTab({ user }) {
               </div>
             )}
             {searchError && (
-              <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
-                {searchError}
-              </div>
+              searchError === "QUOTA_EXCEEDED"
+                ? <QuotaBanner />
+                : searchError === "INVALID_KEY"
+                  ? <InvalidKeyBanner />
+                  : (
+                    <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
+                      {searchError}
+                    </div>
+                  )
             )}
             {!searchCatalogLoading && searchResults.length > 0 && (
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
@@ -700,10 +750,16 @@ function WatchlistTab({ user }) {
           </div>
         )}
         {!ebayLoading && ebayResult && (
-          <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-            <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
-            <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(ebayResult)}</div>
-          </div>
+          ebayResult === QUOTA_EXCEEDED
+            ? <QuotaBanner />
+            : ebayResult === INVALID_KEY
+              ? <InvalidKeyBanner />
+              : (
+                <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
+                  <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(ebayResult)}</div>
+                </div>
+              )
         )}
       </div>
     </div>
@@ -978,8 +1034,19 @@ export default function App() {
   const runAutoPricing = async () => {
     if (!newCard.player) return;
     setAutoPricingLoading(true);
+    setSearchError("");
     const system = "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450).";
     const result = await callChatGPT([{ role: "user", content: `Estimated market value of sports card: ${newCard.year} ${newCard.player} ${newCard.set} ${newCard.grade}` }], system);
+    if (result === QUOTA_EXCEEDED) {
+      setSearchError("QUOTA_EXCEEDED");
+      setAutoPricingLoading(false);
+      return;
+    }
+    if (result === INVALID_KEY) {
+      setSearchError("INVALID_KEY");
+      setAutoPricingLoading(false);
+      return;
+    }
     const cleanedPrice = parseFloat(result.replace(/[^0-9.]/g, '')) || 0.0;
     setNewCard((prev) => ({ ...prev, currentValue: cleanedPrice }));
     setAutoPricingLoading(false);
@@ -995,6 +1062,10 @@ export default function App() {
       const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
       if (result === QUOTA_EXCEEDED) {
         setSearchError("QUOTA_EXCEEDED");
+        return;
+      }
+      if (result === INVALID_KEY) {
+        setSearchError("INVALID_KEY");
         return;
       }
       const startIndex = result.indexOf("[");
@@ -1189,9 +1260,15 @@ export default function App() {
                     </div>
                   )}
                   {searchError && (
-                    <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
-                      {searchError}
-                    </div>
+                    searchError === "QUOTA_EXCEEDED"
+                      ? <QuotaBanner />
+                      : searchError === "INVALID_KEY"
+                        ? <InvalidKeyBanner />
+                        : (
+                          <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
+                            {searchError}
+                          </div>
+                        )
                   )}
                   {!searchCatalogLoading && searchResults.length > 0 && (
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
@@ -1298,7 +1375,9 @@ export default function App() {
                       ? m.content
                       : m.content === QUOTA_EXCEEDED
                         ? <QuotaBanner />
-                        : renderMarkdown(m.content)
+                        : m.content === INVALID_KEY
+                          ? <InvalidKeyBanner />
+                          : renderMarkdown(m.content)
                     }
                   </div>
                 </div>
@@ -1348,10 +1427,16 @@ export default function App() {
               </div>
             )}
             {!marketLoading && marketResult ? (
-              <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-                <div style={{ ...S.label, color: S.gold, marginBottom: 12 }}>Analysis: {marketQuery}</div>
-                <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(marketResult)}</div>
-              </div>
+              marketResult === QUOTA_EXCEEDED
+                ? <QuotaBanner />
+                : marketResult === INVALID_KEY
+                  ? <InvalidKeyBanner />
+                  : (
+                    <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
+                      <div style={{ ...S.label, color: S.gold, marginBottom: 12 }}>Analysis: {marketQuery}</div>
+                      <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(marketResult)}</div>
+                    </div>
+                  )
             ) : !marketLoading && (
               <div style={{ border: "1px dashed #2a2a3e", borderRadius: 12, padding: 40, textAlign: "center", color: "#3a3a5e" }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
