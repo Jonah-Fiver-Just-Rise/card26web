@@ -52,25 +52,41 @@ const S = { // shared inline style tokens
 const callChatGPT = async (messages, system) => {
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey && !geminiKey.includes("YOUR_GEMINI_API_KEY") && geminiKey.trim() !== "") {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            { role: "user", parts: [{ text: `System Prompt Instructions: ${system}` }] },
-            ...messages.map(m => ({
-              role: m.role === "assistant" ? "model" : "user",
-              parts: [{ text: m.content }]
-            }))
-          ]
-        })
-      });
-      const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received from Gemini.";
-    } catch (err) {
-      return `Gemini Error: ${err.message}`;
+    const models = ["gemini-flash-latest", "gemini-1.5-flash"];
+    let lastError = null;
+
+    for (const model of models) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "X-goog-api-key": geminiKey.trim()
+          },
+          body: JSON.stringify({
+            contents: [
+              { role: "user", parts: [{ text: `System Prompt Instructions: ${system}` }] },
+              ...messages.map(m => ({
+                role: m.role === "assistant" ? "model" : "user",
+                parts: [{ text: m.content }]
+              }))
+            ]
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error?.message || `HTTP ${res.status} ${res.statusText}`);
+        }
+        if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          return data.candidates[0].content.parts[0].text;
+        }
+      } catch (err) {
+        console.warn(`Model ${model} failed:`, err);
+        lastError = err;
+      }
     }
+    return `Gemini Error: ${lastError ? lastError.message : "Service Unavailable (503). Please try again."}`;
   }
 
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
@@ -113,22 +129,73 @@ const ChartTooltip = ({ active, payload, label }) => {
 
 // ── Grading ROI Calculator ─────────────────────────────────────────────────
 function GradingTab() {
-  const [form, setForm] = useState({ player: "", rawValue: "", psa10Est: "", psa9Est: "", gradingCost: "50", tier: "Value" });
+  const [form, setForm] = useState({ player: "", rawValue: "", psa10Est: "", psa9Est: "", gradingCost: "22", tier: "Value" });
   const [aiAnalysis, setAiAnalysis] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchCatalogLoading, setSearchCatalogLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const rawN = parseFloat(form.rawValue) || 0;
   const p10 = parseFloat(form.psa10Est) || 0;
   const p9 = parseFloat(form.psa9Est) || 0;
-  const cost = parseFloat(form.gradingCost) || 50;
+  const cost = parseFloat(form.gradingCost) || 22;
 
   const roi10 = rawN > 0 ? (((p10 - rawN - cost) / (rawN + cost)) * 100).toFixed(1) : null;
   const roi9 = rawN > 0 ? (((p9 - rawN - cost) / (rawN + cost)) * 100).toFixed(1) : null;
   const breakeven10 = rawN + cost;
   const verdict = roi10 !== null ? (parseFloat(roi10) > 30 ? "Submit" : parseFloat(roi10) > 0 ? "Maybe" : "Skip") : null;
   const verdictColor = verdict === "Submit" ? "#22c55e" : verdict === "Maybe" ? "#f59e0b" : "#ef4444";
+
+  const EXAMPLES = [
+    { label: "2023 Wembanyama Prizm", player: "2023 Victor Wembanyama Prizm RC #136", rawValue: "250", psa10Est: "1100", psa9Est: "400", gradingCost: "22", tier: "Value" },
+    { label: "2018 Luka Dončić Prizm", player: "2018 Luka Dončić Prizm Rookie #280", rawValue: "350", psa10Est: "1400", psa9Est: "550", gradingCost: "50", tier: "Economy" },
+    { label: "2003 LeBron James Topps", player: "2003 LeBron James Topps Rookie #111", rawValue: "800", psa10Est: "4500", psa9Est: "1500", gradingCost: "150", tier: "Express" },
+  ];
+
+  const loadExample = (ex) => {
+    setForm({
+      player: ex.player,
+      rawValue: ex.rawValue,
+      psa10Est: ex.psa10Est,
+      psa9Est: ex.psa9Est,
+      gradingCost: ex.gradingCost,
+      tier: ex.tier
+    });
+    setSearchResults([]);
+    setSearchQuery("");
+    setSearchError("");
+    setAiAnalysis("");
+  };
+
+  const runCatalogSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchCatalogLoading(true);
+    setSearchResults([]);
+    setSearchError("");
+    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), 'rawValue' (number estimation), 'psa10Value' (number estimation), and 'psa9Value' (number estimation). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    try {
+      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
+      const startIndex = result.indexOf("[");
+      const endIndex = result.lastIndexOf("]") + 1;
+      if (startIndex === -1 || endIndex === 0) {
+        setSearchError("No structured catalog items returned from AI.");
+        return;
+      }
+      const cleanedResult = result.substring(startIndex, endIndex);
+      const parsed = JSON.parse(cleanedResult);
+      setSearchResults(parsed);
+    } catch (e) {
+      console.error("Failed parsing search results: ", e);
+      setSearchError("AI Error: " + e.message);
+    } finally {
+      setSearchCatalogLoading(false);
+    }
+  };
 
   const getAIAnalysis = async () => {
     if (!form.player || !rawN) return;
@@ -143,14 +210,71 @@ function GradingTab() {
   return (
     <div>
       <div style={S.label}>Grading ROI Calculator</div>
-      <div style={{ fontSize: 13, color: S.muted, marginBottom: 20 }}>Find out if submitting to PSA/BGS is worth it before you pay.</div>
+      <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Find out if submitting to PSA/BGS is worth it before you pay.</div>
+
+      {/* Quick Example Presets */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+        <span style={{ fontSize: 12, color: S.muted, fontWeight: 600 }}>Try Examples:</span>
+        {EXAMPLES.map((ex) => (
+          <button key={ex.label} onClick={() => loadExample(ex)} style={{ background: "#111118", border: "1px solid #2a2a3e", borderRadius: 20, padding: "5px 12px", fontSize: 12, color: S.gold, cursor: "pointer", transition: "border 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.borderColor = S.gold} onMouseLeave={(e) => e.currentTarget.style.borderColor = '#2a2a3e'}>
+            {ex.label}
+          </button>
+        ))}
+      </div>
+
+      {/* AI Catalog Search for Grading values */}
+      <div style={{ ...S.card, borderColor: "#2a2a3e", marginBottom: 20, background: "linear-gradient(145deg, #111118, #0d0d12)" }}>
+        <div style={S.label}>Search Card Database for Price Comps</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2023 Wembanyama Prizm" style={S.input} />
+          <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+            {searchCatalogLoading ? "Searching..." : "Search"}
+          </button>
+        </div>
+        {searchCatalogLoading && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
+                <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
+                <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+              </div>
+            ))}
+          </div>
+        )}
+        {searchError && (
+          <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
+            {searchError}
+          </div>
+        )}
+        {!searchCatalogLoading && searchResults.length > 0 && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+            {searchResults.map((item, idx) => (
+              <div key={idx} onClick={() => {
+                setForm({
+                  player: `${item.year} ${item.player} (${item.set})`,
+                  rawValue: item.rawValue,
+                  psa10Est: item.psa10Value,
+                  psa9Est: item.psa9Value,
+                  gradingCost: "22",
+                  tier: "Value"
+                });
+                setSearchResults([]);
+                setSearchQuery("");
+              }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - Raw: {fmt(item.rawValue)} · PSA 10: {fmt(item.psa10Value)}</span>
+                <span style={{ color: S.gold, fontWeight: 700, fontSize: 12 }}>Select</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         {[
           { k: "player", label: "Player / Card", ph: "e.g. 2023 Wembanyama Prizm" },
-          { k: "rawValue", label: "Raw (Ungraded) Value ($)", ph: "e.g. 300" },
-          { k: "psa10Est", label: "PSA 10 Market Value ($)", ph: "e.g. 1200" },
-          { k: "psa9Est", label: "PSA 9 Market Value ($)", ph: "e.g. 500" },
+          { k: "rawValue", label: "Raw (Ungraded) Value ($)", ph: "e.g. 250" },
+          { k: "psa10Est", label: "PSA 10 Market Value ($)", ph: "e.g. 1100" },
+          { k: "psa9Est", label: "PSA 9 Market Value ($)", ph: "e.g. 400" },
         ].map((f) => (
           <div key={f.k}>
             <div style={{ ...S.label, marginBottom: 6 }}>{f.label}</div>
@@ -160,7 +284,11 @@ function GradingTab() {
 
         <div>
           <div style={{ ...S.label, marginBottom: 6 }}>Grading Tier</div>
-          <select value={form.tier} onChange={(e) => set("tier", e.target.value)} style={{ ...S.input }}>
+          <select value={form.tier} onChange={(e) => {
+            const t = e.target.value;
+            const priceMap = { Value: "22", Economy: "50", Regular: "100", Express: "150", "Super Express": "300" };
+            setForm((prev) => ({ ...prev, tier: t, gradingCost: priceMap[t] || prev.gradingCost }));
+          }} style={{ ...S.input }}>
             {[["Value", "$18–22"], ["Economy", "$50"], ["Regular", "$100"], ["Express", "$150"], ["Super Express", "$300"]].map(([t, p]) => (
               <option key={t} value={t}>{t} ({p})</option>
             ))}
@@ -168,7 +296,7 @@ function GradingTab() {
         </div>
         <div>
           <div style={{ ...S.label, marginBottom: 6 }}>Grading Cost ($)</div>
-          <input value={form.gradingCost} onChange={(e) => set("gradingCost", e.target.value)} placeholder="50" style={S.input} />
+          <input value={form.gradingCost} onChange={(e) => set("gradingCost", e.target.value)} placeholder="22" style={S.input} />
         </div>
       </div>
 
@@ -211,6 +339,11 @@ function WatchlistTab({ user }) {
   const [ebayResult, setEbayResult] = useState("");
   const [ebayLoading, setEbayLoading] = useState(false);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchCatalogLoading, setSearchCatalogLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, `users/${user.uid}/watchlists`), orderBy("addedAt", "desc"));
@@ -222,6 +355,38 @@ function WatchlistTab({ user }) {
 
   const setField = (k, v) => setNewItem((n) => ({ ...n, [k]: v }));
 
+  const runCatalogSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchCatalogLoading(true);
+    setSearchResults([]);
+    setSearchError("");
+    const system = "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks.";
+    try {
+      const result = await callChatGPT([{ role: "user", content: `Search query: ${searchQuery}` }], system);
+      const startIndex = result.indexOf("[");
+      const endIndex = result.lastIndexOf("]") + 1;
+      if (startIndex === -1 || endIndex === 0) {
+        setSearchError("No structured catalog items returned from AI.");
+        return;
+      }
+      const cleanedResult = result.substring(startIndex, endIndex);
+      const parsed = JSON.parse(cleanedResult);
+      setSearchResults(parsed);
+    } catch (e) {
+      console.error("Failed parsing search results: ", e);
+      setSearchError("AI Error: " + e.message);
+    } finally {
+      setSearchCatalogLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchError("");
+  };
+
   const addItem = async () => {
     if (!newItem.player) return;
     try {
@@ -232,7 +397,7 @@ function WatchlistTab({ user }) {
         alert: false,
         addedAt: new Date().toISOString()
       });
-      setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
+      resetForm();
       setShowAdd(false);
     } catch (e) {
       console.error(e);
@@ -264,11 +429,61 @@ function WatchlistTab({ user }) {
           <div style={S.label}>Watchlist</div>
           <div style={{ fontSize: 13, color: S.muted }}>Cards you're watching to buy. Set target prices and track vs. market.</div>
         </div>
-        <button onClick={() => setShowAdd(!showAdd)} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
+        <button onClick={() => {
+          if (showAdd) {
+            resetForm();
+          }
+          setShowAdd(!showAdd);
+        }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
       </div>
 
       {showAdd && (
         <div style={{ ...S.card, borderColor: "#c9a84c33", marginBottom: 14 }}>
+          <div style={{ borderBottom: "1px solid #1e1e2e", paddingBottom: 14, marginBottom: 14 }}>
+            <div style={S.label}>Search Card Catalog</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
+              <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+                {searchCatalogLoading ? "Searching..." : "Search"}
+              </button>
+            </div>
+            {searchCatalogLoading && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
+                    <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
+                    <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {searchError && (
+              <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
+                {searchError}
+              </div>
+            )}
+            {!searchCatalogLoading && searchResults.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+                {searchResults.map((item, idx) => (
+                  <div key={idx} onClick={() => {
+                    setNewItem({
+                      player: item.player,
+                      year: item.year,
+                      set: item.set,
+                      grade: "Raw",
+                      sport: item.sport,
+                      targetBuy: item.estimatedPrice,
+                      currentEst: item.estimatedPrice
+                    });
+                    setSearchResults([]);
+                  }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                    <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
+                    <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {[
               { k: "player", ph: "Player" }, { k: "year", ph: "Year" },
@@ -277,10 +492,13 @@ function WatchlistTab({ user }) {
             ].map((f) => (
               <input key={f.k} value={newItem[f.k]} onChange={(e) => setField(f.k, e.target.value)} placeholder={f.ph} style={S.input} />
             ))}
+            <select value={newItem.sport} onChange={(e) => setField("sport", e.target.value)} style={S.input}>
+              {["Basketball", "Baseball", "Football", "Hockey", "Soccer"].map((s) => <option key={s}>{s}</option>)}
+            </select>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={addItem} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Add to Watchlist</button>
-            <button onClick={() => setShowAdd(false)} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { resetForm(); setShowAdd(false); }} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
           </div>
         </div>
       )}
@@ -325,7 +543,20 @@ function WatchlistTab({ user }) {
             {ebayLoading ? "…" : "Look Up"}
           </button>
         </div>
-        {ebayResult && (
+        {ebayLoading && (
+          <div style={{ ...S.card, borderColor: "#c9a84c55", background: "linear-gradient(145deg, #12121e, #0c0c14)", padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: S.gold, animation: "pulse 1.2s infinite" }} />
+              <div style={{ ...S.label, color: S.gold, marginBottom: 0 }}>Querying Live Comps...</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ height: 12, width: "85%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
+              <div style={{ height: 12, width: "70%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.2s" }} />
+              <div style={{ height: 12, width: "90%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.4s" }} />
+            </div>
+          </div>
+        )}
+        {!ebayLoading && ebayResult && (
           <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
             <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
             <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8", whiteSpace: "pre-wrap" }}>{ebayResult}</div>
@@ -336,13 +567,59 @@ function WatchlistTab({ user }) {
   );
 }
 
-// ── History Tab ────────────────────────────────────────────────────────────
 function HistoryTab({ cards }) {
+  const [timeFilter, setTimeFilter] = useState("1Y");
   const totalValue = cards.reduce((s, c) => s + (c.currentValue * (c.quantity || 1)), 0);
   const totalCost = cards.reduce((s, c) => s + (c.purchasePrice * (c.quantity || 1)), 0);
 
-  // Append today to history
-  const data = [...HISTORY, { month: "Today", value: totalValue }];
+  // Generate dynamic relative history that scales to the user's actual portfolio value & cost basis based on filter
+  const data = useMemo(() => {
+    if (timeFilter === "1D") {
+      const hours = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
+      const norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
+      return hours.map((h, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: h, value: Math.round(val) };
+      });
+    } else if (timeFilter === "1W") {
+      const days = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
+      const norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
+      return days.map((d, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: d, value: Math.round(val) };
+      });
+    } else if (timeFilter === "1M") {
+      const weeks = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
+      const norm = [0.0, 0.22, 0.55, 0.78, 1.0];
+      return weeks.map((w, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: w, value: Math.round(val) };
+      });
+    } else if (timeFilter === "3Y") {
+      const years = ["3y ago", "2y ago", "1y ago", "Today"];
+      const norm = [0.0, 0.45, 0.78, 1.0];
+      return years.map((y, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: y, value: Math.round(val) };
+      });
+    } else if (timeFilter === "5Y") {
+      const years = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
+      const norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
+      return years.map((y, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: y, value: Math.round(val) };
+      });
+    } else { // 1Y
+      const months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
+      const norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
+      const historyData = months.map((m, idx) => {
+        const val = totalCost + (totalValue - totalCost) * norm[idx];
+        return { month: m, value: Math.round(val) };
+      });
+      return [...historyData, { month: "Today", value: totalValue }];
+    }
+  }, [totalCost, totalValue, timeFilter]);
+
   const start = data[0].value;
   const end = data[data.length - 1].value;
   const overallGain = end - start;
@@ -350,15 +627,24 @@ function HistoryTab({ cards }) {
   const best = data.reduce((a, b) => (b.value > a.value ? b : a));
   const worst = data.reduce((a, b) => (b.value < a.value ? b : a));
 
+  const getStartSub = () => {
+    if (timeFilter === "1D") return "9:00 AM today";
+    if (timeFilter === "1W") return "6 days ago";
+    if (timeFilter === "1M") return "4 weeks ago";
+    if (timeFilter === "3Y") return "3 years ago";
+    if (timeFilter === "5Y") return "5 years ago";
+    return "Jan 2024";
+  };
+
   return (
     <div>
       <div style={S.label}>Portfolio History</div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
         {[
-          { label: "Starting Value", value: fmt(start), sub: "Jan 2024" },
+          { label: "Starting Value", value: fmt(start), sub: getStartSub() },
           { label: "Current Value", value: fmt(end), sub: "Today" },
-          { label: "All-Time Gain", value: `${overallGain >= 0 ? "+" : ""}${fmt(overallGain)}`, sub: `${overallPct}%`, color: gainColor(overallGain) },
+          { label: ["1Y", "3Y", "5Y"].includes(timeFilter) ? "All-Time Gain" : "Period Gain", value: `${overallGain >= 0 ? "+" : ""}${fmt(overallGain)}`, sub: `${overallPct}%`, color: gainColor(overallGain) },
           { label: "Total Invested", value: fmt(totalCost), sub: "cost basis" },
         ].map((s) => (
           <div key={s.label} style={S.card}>
@@ -370,7 +656,26 @@ function HistoryTab({ cards }) {
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <div style={{ ...S.label, marginBottom: 16 }}>Portfolio Value Over Time</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ ...S.label, marginBottom: 0 }}>Portfolio Value Over Time</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {["1D", "1W", "1M", "1Y", "3Y", "5Y"].map((f) => (
+              <button key={f} onClick={() => setTimeFilter(f)} style={{
+                background: timeFilter === f ? S.gold : "#1a1a28",
+                color: timeFilter === f ? S.bg : S.muted,
+                border: "none",
+                borderRadius: 12,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.15s"
+              }}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
@@ -565,6 +870,9 @@ export default function App() {
         addedAt: new Date().toISOString()
       });
       setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchError("");
       setShowAddCard(false);
     } catch (e) {
       console.error(e);
@@ -661,7 +969,15 @@ export default function App() {
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ ...S.label, marginBottom: 0 }}>Collection</span>
-              <button onClick={() => setShowAddCard(!showAddCard)} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
+              <button onClick={() => {
+                if (showAddCard) {
+                  setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+                  setSearchQuery("");
+                  setSearchResults([]);
+                  setSearchError("");
+                }
+                setShowAddCard(!showAddCard);
+              }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
             </div>
 
             {showAddCard && (
@@ -674,7 +990,22 @@ export default function App() {
                       {searchCatalogLoading ? "Searching..." : "Search"}
                     </button>
                   </div>
-                  {searchResults.length > 0 && (
+                  {searchCatalogLoading && (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
+                          <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
+                          <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {searchError && (
+                    <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>
+                      {searchError}
+                    </div>
+                  )}
+                  {!searchCatalogLoading && searchResults.length > 0 && (
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
                       {searchResults.map((item, idx) => (
                         <div key={idx} onClick={() => {
@@ -715,7 +1046,13 @@ export default function App() {
                   <button onClick={runAutoPricing} disabled={autoPricingLoading} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, color: S.gold, cursor: "pointer" }}>
                     {autoPricingLoading ? "Loading Price..." : "AI Auto-Price Estimation"}
                   </button>
-                  <button onClick={() => setShowAddCard(false)} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => {
+                    setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+                    setSearchQuery("");
+                    setSearchResults([]);
+                    setSearchError("");
+                    setShowAddCard(false);
+                  }} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
             )}
@@ -803,7 +1140,21 @@ export default function App() {
                 <button key={p} onClick={() => setMarketQuery(p)} style={{ background: "#111118", border: "1px solid #2a2a3e", borderRadius: 20, padding: "6px 13px", fontSize: 12, color: "#9b9bba", cursor: "pointer" }}>{p}</button>
               ))}
             </div>
-            {marketResult ? (
+            {marketLoading && (
+              <div style={{ ...S.card, borderColor: "#c9a84c55", background: "linear-gradient(145deg, #12121e, #0c0c14)", padding: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: S.gold, animation: "pulse 1.2s infinite" }} />
+                  <div style={{ ...S.label, color: S.gold, marginBottom: 0 }}>Generating Market Intelligence Report...</div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ height: 14, width: "95%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
+                  <div style={{ height: 14, width: "80%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.15s" }} />
+                  <div style={{ height: 14, width: "88%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.3s" }} />
+                  <div style={{ height: 14, width: "65%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.45s" }} />
+                </div>
+              </div>
+            )}
+            {!marketLoading && marketResult ? (
               <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
                 <div style={{ ...S.label, color: S.gold, marginBottom: 12 }}>Analysis: {marketQuery}</div>
                 <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8", whiteSpace: "pre-wrap" }}>{marketResult}</div>
@@ -819,7 +1170,7 @@ export default function App() {
       </div>
 
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:.2;transform:scale(.9)} 50%{opacity:1;transform:scale(1.1)} }
+        @keyframes pulse { 0%,100%{opacity: 0.3} 50%{opacity: 0.8} }
         *{box-sizing:border-box}
         input::placeholder{color:#3a3a5e}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0a0a0f}::-webkit-scrollbar-thumb{background:#2a2a3e;border-radius:2px}

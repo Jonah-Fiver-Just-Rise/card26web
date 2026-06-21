@@ -35,23 +35,6 @@ https://aistudio.google.com/
 AQ.Ab8RN6LxNBYiHsTUrtrgTceiOwTk8XOJy9Rd6tW6sEbZjJHo7w
 
 
-curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent" \
-  -H 'Content-Type: application/json' \
-  -H 'X-goog-api-key: AQ.Ab8RN6KyGMTOj0RENS-gUhQuOg01RN2njgoEcx8nV6ZkbZ9h3Q' \
-  -X POST \
-  -d '{
-    "contents": [
-      {
-        "parts": [
-          {
-            "text": "Explain how AI works in a few words"
-          }
-        ]
-      }
-    ]
-  }'
-
-
 For Android:
 Go to your Firebase Console.
 Go to Project Settings (gear icon) > General.
@@ -70,5 +53,4 @@ Enter the Bundle ID com.justrise.cardiq.cardiqMobile.
 Download the GoogleService-Info.plist file.
 Place this file inside: cardiq_mobile/ios/Runner/GoogleService-Info.plist (and open the iOS folder in Xcode to drag and link this file into the Runner folder).
 
-
-
+tech.txt
