@@ -400,7 +400,7 @@ function GradingTab() {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+      <div className="grid-2" style={{ marginBottom: 16 }}>
         {[
           { k: "player", label: "Player / Card", ph: "e.g. 2023 Wembanyama Prizm" },
           { k: "rawValue", label: "Raw (Ungraded) Value ($)", ph: "e.g. 250" },
@@ -432,7 +432,7 @@ function GradingTab() {
       </div>
 
       {verdict && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
+        <div className="grid-4 mb-20">
           {[
             { label: "Verdict", value: verdict, color: verdictColor },
             { label: "ROI if PSA 10", value: `${roi10}%`, color: gainColor(parseFloat(roi10)) },
@@ -783,7 +783,7 @@ function HistoryTab({ cards }) {
     <div>
       <div style={S.label}>Portfolio History</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
+      <div className="grid-4 mb-24">
         {[
           { label: "Starting Value", value: fmt(start), sub: getStartSub() },
           { label: "Current Value", value: fmt(end), sub: "Today" },
@@ -830,7 +830,7 @@ function HistoryTab({ cards }) {
         </ResponsiveContainer>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="grid-2">
         <div style={S.card}>
           <div style={{ ...S.label, marginBottom: 8 }}>Peak Value</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#22c55e" }}>{fmt(best.value)}</div>
@@ -1090,35 +1090,35 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: 920, margin: "0 auto", paddingBottom: 60, textAlign: "left" }}>
+    <div style={{ minHeight: "100vh", width: "100%", background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, sans-serif", paddingBottom: 60, textAlign: "left" }}>
 
       {/* Header */}
-      <div style={{ padding: "24px 24px 0", borderBottom: "1px solid #1e1e2e" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+      <div className="app-header">
+        <div className="header-top">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
             <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>CardIQ</span>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
+            <span className="header-subtitle" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 12, color: S.muted }}>{user.email}</span>
-            <button onClick={handleLogout} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>Sign Out</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="header-email" style={{ fontSize: 12, color: S.muted }}>{user.email}</span>
+            <button onClick={handleLogout} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Sign Out</button>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 0, marginTop: 18, overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 0, marginTop: 14, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 18px", background: "none", border: "none", borderBottom: tab === t ? `2px solid ${S.gold}` : "2px solid transparent", color: tab === t ? S.gold : S.muted, fontWeight: tab === t ? 700 : 400, fontSize: 13, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", letterSpacing: "0.02em" }}>
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: tab === t ? `2px solid ${S.gold}` : "2px solid transparent", color: tab === t ? S.gold : S.muted, fontWeight: tab === t ? 700 : 400, fontSize: 13, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", letterSpacing: "0.02em" }}>
               {t}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: "24px 24px 0" }}>
+      <div className="app-content">
 
         {/* ── PORTFOLIO ── */}
         {tab === "Portfolio" && (
           <div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+            <div className="grid-3 mb-24">
               {[
                 { label: "Total Value", value: fmt(totalValue), sub: `${cards.length} cards` },
                 { label: "Total Invested", value: fmt(totalCost), sub: "cost basis" },
@@ -1294,7 +1294,12 @@ export default function App() {
               {chatMessages.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
                   <div style={{ maxWidth: "80%", background: m.role === "user" ? S.gold : "#111118", border: m.role === "assistant" ? "1px solid #1e1e2e" : "none", borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "12px 16px", fontSize: 14, lineHeight: 1.65, color: m.role === "user" ? S.bg : S.text, fontWeight: m.role === "user" ? 600 : 400 }}>
-                    {m.role === "user" ? m.content : renderMarkdown(m.content)}
+                    {m.role === "user"
+                      ? m.content
+                      : m.content === QUOTA_EXCEEDED
+                        ? <QuotaBanner />
+                        : renderMarkdown(m.content)
+                    }
                   </div>
                 </div>
               ))}
@@ -1361,7 +1366,39 @@ export default function App() {
         @keyframes pulse { 0%,100%{opacity: 0.3} 50%{opacity: 0.8} }
         *{box-sizing:border-box}
         input::placeholder{color:#3a3a5e}
+        select{color:#e8e4d9}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0a0a0f}::-webkit-scrollbar-thumb{background:#2a2a3e;border-radius:2px}
+
+        /* ── Layout ── */
+        .app-header { padding: 20px 24px 0; border-bottom: 1px solid #1e1e2e; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; }
+        .app-content { padding: 20px 24px 0; }
+
+        /* ── Responsive Grids ── */
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .mb-24 { margin-bottom: 24px; }
+        .mb-20 { margin-bottom: 20px; }
+
+        /* ── Mobile (≤ 600px) ── */
+        @media (max-width: 600px) {
+          .app-header { padding: 14px 16px 0; }
+          .app-content { padding: 16px 16px 0; }
+          .header-subtitle { display: none; }
+          .header-email { display: none; }
+          .grid-3 { grid-template-columns: 1fr; }
+          .grid-2 { grid-template-columns: 1fr; }
+          .grid-4 { grid-template-columns: 1fr 1fr; }
+        }
+
+        /* ── Tablet (601px – 900px) ── */
+        @media (min-width: 601px) and (max-width: 900px) {
+          .app-header { padding: 18px 20px 0; }
+          .app-content { padding: 18px 20px 0; }
+          .grid-3 { grid-template-columns: repeat(3, 1fr); }
+          .grid-4 { grid-template-columns: repeat(2, 1fr); }
+        }
       `}</style>
     </div>
   );
