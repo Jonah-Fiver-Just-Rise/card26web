@@ -122,115 +122,90 @@ const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
 
 const callChatGPT = async (messages, system) => {
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (geminiKey && !geminiKey.includes("YOUR_GEMINI_API_KEY") && geminiKey.trim() !== "") {
-    const models = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
-    let lastError = null;
+  if (!geminiKey || geminiKey.includes("YOUR_GEMINI_API_KEY") || geminiKey.trim() === "") {
+    return "Please configure VITE_GEMINI_API_KEY in your .env file.";
+  }
+  
+  const models = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
+  let lastError = null;
 
-    // Gemini requires strict user/model alternation, starting with "user"
-    // Build a clean alternating conversation from messages
-    const buildGeminiContents = (msgs) => {
-      const mapped = msgs.map(m => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }]
-      }));
+  // Gemini requires strict user/model alternation, starting with "user"
+  // Build a clean alternating conversation from messages
+  const buildGeminiContents = (msgs) => {
+    const mapped = msgs.map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }]
+    }));
 
-      // Drop leading "model" turns (Gemini must start with user)
-      let start = 0;
-      while (start < mapped.length && mapped[start].role === "model") start++;
-      const trimmed = mapped.slice(start);
+    // Drop leading "model" turns (Gemini must start with user)
+    let start = 0;
+    while (start < mapped.length && mapped[start].role === "model") start++;
+    const trimmed = mapped.slice(start);
 
-      // Merge consecutive same-role turns to enforce strict alternation
-      const merged = [];
-      for (const turn of trimmed) {
-        if (merged.length > 0 && merged[merged.length - 1].role === turn.role) {
-          merged[merged.length - 1].parts[0].text += "\n\n" + turn.parts[0].text;
-        } else {
-          merged.push({ role: turn.role, parts: [{ text: turn.parts[0].text }] });
-        }
-      }
-      return merged;
-    };
-
-    for (const model of models) {
-      try {
-        const res = await fetchWithTimeout(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-goog-api-key": geminiKey.trim()
-            },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [{ text: system }]
-              },
-              contents: buildGeminiContents(messages),
-              generationConfig: {
-                maxOutputTokens: 2048,
-                temperature: 0.7
-              }
-            })
-          }
-        );
-
-        // 429 = quota exceeded, 401 = invalid key — stop immediately
-        if (res.status === 429) {
-          console.warn(`Gemini quota exceeded (429).`);
-          return QUOTA_EXCEEDED;
-        }
-        if (res.status === 401) {
-          console.error(`Gemini API key invalid (401). Check VITE_GEMINI_API_KEY in Vercel env vars.`);
-          return INVALID_KEY;
-        }
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error?.message || `HTTP ${res.status} ${res.statusText}`);
-        }
-        if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-          return data.candidates[0].content.parts[0].text;
-        }
-        throw new Error("Empty response from model.");
-      } catch (err) {
-        if (err.name === "AbortError") {
-          console.warn(`Model ${model} timed out.`);
-          lastError = new Error("Request timed out after 30s. Please try again.");
-        } else {
-          console.warn(`Model ${model} failed:`, err);
-          lastError = err;
-        }
+    // Merge consecutive same-role turns to enforce strict alternation
+    const merged = [];
+    for (const turn of trimmed) {
+      if (merged.length > 0 && merged[merged.length - 1].role === turn.role) {
+        merged[merged.length - 1].parts[0].text += "\n\n" + turn.parts[0].text;
+      } else {
+        merged.push({ role: turn.role, parts: [{ text: turn.parts[0].text }] });
       }
     }
-    return `⚠️ ${lastError ? lastError.message : "Service Unavailable. Please try again."}`;
-  }
+    return merged;
+  };
 
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey || apiKey.includes("YOUR_OPENAI_API_KEY")) {
-    return "Please configure VITE_GEMINI_API_KEY (Google AI Studio) or VITE_OPENAI_API_KEY in your .env file.";
+  for (const model of models) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-goog-api-key": geminiKey.trim()
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: system }]
+            },
+            contents: buildGeminiContents(messages),
+            generationConfig: {
+              maxOutputTokens: 2048,
+              temperature: 0.7
+            }
+          })
+        }
+      );
+
+      // 429 = quota exceeded, 401 = invalid key — stop immediately
+      if (res.status === 429) {
+        console.warn(`Gemini quota exceeded (429).`);
+        return QUOTA_EXCEEDED;
+      }
+      if (res.status === 401) {
+        console.error(`Gemini API key invalid (401). Check VITE_GEMINI_API_KEY in your env vars.`);
+        return INVALID_KEY;
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || `HTTP ${res.status} ${res.statusText}`);
+      }
+      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return data.candidates[0].content.parts[0].text;
+      }
+      throw new Error("Empty response from model.");
+    } catch (err) {
+      if (err.name === "AbortError") {
+        console.warn(`Model ${model} timed out.`);
+        lastError = new Error("Request timed out after 30s. Please try again.");
+      } else {
+        console.warn(`Model ${model} failed:`, err);
+        lastError = err;
+      }
+    }
   }
-  try {
-    const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 800,
-        messages: [
-          { role: "system", content: system },
-          ...messages
-        ]
-      }),
-    });
-    if (res.status === 429) return QUOTA_EXCEEDED;
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || "No response received.";
-  } catch (err) {
-    return `⚠️ AI Error: ${err.name === "AbortError" ? "Request timed out. Please try again." : err.message}`;
-  }
+  return `⚠️ ${lastError ? lastError.message : "Service Unavailable. Please try again."}`;
 };
 
 // ── Secure Client-Side CardSight AI API call (with graceful fallback support) ──
