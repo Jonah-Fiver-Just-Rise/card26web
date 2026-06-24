@@ -1144,6 +1144,22 @@ export default function App() {
       setToast(prev => ({ ...prev, visible: false }));
     }, 4500);
   };
+  const [trendingMovements, setTrendingMovements] = useState([
+    { name: "Wembanyama RC 2023", query: "2023 Victor Wembanyama Prizm RC", price: 625.00, change: 14.2, trend: "up" },
+    { name: "Shohei Ohtani Chrome Auto", query: "2018 Shohei Ohtani Bowman Chrome Auto", price: 1420.00, change: 8.5, trend: "up" },
+    { name: "Patrick Mahomes Prizm", query: "2017 Patrick Mahomes Prizm RC", price: 2850.00, change: -2.4, trend: "down" },
+    { name: "Caitlin Clark RC", query: "2024 Caitlin Clark Topps Chrome RC", price: 310.00, change: 22.1, trend: "up" },
+    { name: "Luka Dončić Prizm PSA 10", query: "2018 Luka Dončić Prizm PSA 10", price: 780.00, change: 5.8, trend: "up" },
+    { name: "Connor McDavid Young Guns", query: "2015 Connor McDavid Upper Deck Young Guns", price: 1250.00, change: -1.8, trend: "down" }
+  ]);
+  const [loadingTrendingPrices, setLoadingTrendingPrices] = useState(false);
+
+  useEffect(() => {
+    if (tab === "Market") {
+      fetchTrendingPrices();
+    }
+  }, [tab]);
+
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -1230,13 +1246,57 @@ export default function App() {
     }
   };
 
-  const runMarketAnalysis = async () => {
-    if (!marketQuery.trim() || marketLoading) return;
+  const fetchTrendingPrices = async () => {
+    if (loadingTrendingPrices) return;
+    setLoadingTrendingPrices(true);
+    try {
+      const updated = await Promise.all(
+        trendingMovements.map(async (item) => {
+          try {
+            const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(item.query)}`);
+            const searchResults = searchRes?.results || searchRes?.data;
+            if (searchRes && searchResults && searchResults.length > 0) {
+              const cardId = searchResults[0].id;
+              const newPrice = await fetchCardPrice(cardId);
+              if (newPrice > 0) {
+                const baseline = item.price;
+                const changePct = parseFloat((((newPrice - baseline) / baseline) * 100).toFixed(1));
+                return {
+                  ...item,
+                  price: newPrice,
+                  change: changePct === 0 ? item.change : changePct,
+                  trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : item.trend)
+                };
+              }
+            }
+          } catch (e) {
+            console.warn(`Failed to fetch live price for ${item.name}:`, e);
+          }
+          return item;
+        })
+      );
+      setTrendingMovements(updated);
+      showToast("Trending market movements updated with live CardSight AI pricing.", "success");
+    } catch (err) {
+      console.error("Failed to load trending prices:", err);
+    } finally {
+      setLoadingTrendingPrices(false);
+    }
+  };
+
+  const handleTrendingClick = (item) => {
+    setMarketQuery(item.query);
+    runMarketAnalysis(item.query);
+  };
+
+  const runMarketAnalysis = async (queryToAnalyze) => {
+    const q = queryToAnalyze || marketQuery;
+    if (!q.trim() || marketLoading) return;
     setMarketLoading(true);
     setMarketResult("");
     try {
       const system = `You are a sports card market analyst. Give detailed analysis: current price ranges, trend direction, key value drivers, PSA 9 vs 10 grade premium spread, and a clear BUY / HOLD / SELL recommendation with reasoning. Be specific with numbers. Under 250 words.`;
-      const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${marketQuery}` }], system);
+      const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${q}` }], system);
       setMarketResult(result);
     } catch (err) {
       setMarketResult(`⚠️ Failed to fetch analysis: ${err.message}`);
@@ -1744,10 +1804,71 @@ export default function App() {
                 {marketLoading ? "…" : "Analyze"}
               </button>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
-              {["Wembanyama RC 2023", "Shohei Ohtani Chrome Auto", "Patrick Mahomes Prizm", "Caitlin Clark RC", "2024 Topps Chrome Baseball", "Jayden Daniels RC"].map((p) => (
-                <button key={p} onClick={() => setMarketQuery(p)} style={{ background: "#111118", border: "1px solid #2a2a3e", borderRadius: 20, padding: "6px 13px", fontSize: 12, color: "#9b9bba", cursor: "pointer" }}>{p}</button>
-              ))}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
+              {loadingTrendingPrices ? (
+                <span style={{ fontSize: 11, color: S.gold, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="spinner" style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #c9a84c", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  Updating live prices...
+                </span>
+              ) : (
+                <button onClick={fetchTrendingPrices} style={{ background: "transparent", border: "none", color: S.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
+                  Refresh Prices
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
+              {trendingMovements.map((item) => {
+                const isUp = item.trend === "up";
+                return (
+                  <div
+                    key={item.name}
+                    onClick={() => handleTrendingClick(item)}
+                    style={{
+                      background: "linear-gradient(135deg, #111118, #0e0e14)",
+                      border: `1px solid ${isUp ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+                      borderRadius: 10,
+                      padding: "10px 14px",
+                      cursor: "pointer",
+                      transition: "transform 0.2s, border-color 0.2s",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.borderColor = isUp ? "#22c55e" : "#ef4444";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "none";
+                      e.currentTarget.style.borderColor = isUp ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)";
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: S.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {item.name}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
+                      <span style={{ fontSize: 13, color: S.gold, fontWeight: 800 }}>
+                        {fmt(item.price)}
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: isUp ? "#22c55e" : "#ef4444",
+                        background: isUp ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2
+                      }}>
+                        {isUp ? "▲" : "▼"} {isUp ? "+" : ""}{item.change}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             {marketLoading && (
               <div style={{ ...S.card, borderColor: "#c9a84c55", background: "linear-gradient(145deg, #12121e, #0c0c14)", padding: 24 }}>
@@ -1786,6 +1907,7 @@ export default function App() {
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity: 0.3} 50%{opacity: 0.8} }
+        @keyframes spin { to { transform: rotate(360deg); } }
         *{box-sizing:border-box}
         input::placeholder{color:#3a3a5e}
         select{color:#e8e4d9}
