@@ -1137,6 +1137,13 @@ export default function App() {
   const [searchError, setSearchError] = useState("");
   const [firebaseError, setFirebaseError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: "", type: "success" });
+  const showToast = (message, type = "success") => {
+    setToast({ visible: true, message, type });
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, visible: false }));
+    }, 4500);
+  };
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -1334,7 +1341,7 @@ export default function App() {
           }
         }
       }
-      alert(`Sync Complete! Updated live valuations for ${updatedCount} cards using fresh CardSight AI comps.`);
+      showToast(`Sync Complete! Updated live valuations for ${updatedCount} cards using fresh CardSight AI comps.`, "success");
     } catch (err) {
       console.error("Failed to sync portfolio prices:", err);
       setFirebaseError(`Price sync failed: ${err.message}`);
@@ -1814,7 +1821,72 @@ export default function App() {
           .grid-3 { grid-template-columns: repeat(3, 1fr); }
           .grid-4 { grid-template-columns: repeat(2, 1fr); }
         }
+
+        @keyframes slideInRight {
+          from {
+            transform: translateX(120%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
       `}</style>
+
+      {/* Toast Notification */}
+      {toast.visible && (
+        <div style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          background: "rgba(10, 10, 15, 0.95)",
+          backdropFilter: "blur(12px)",
+          border: "1px solid rgba(168, 144, 96, 0.35)",
+          borderRadius: 12,
+          padding: "14px 18px",
+          boxShadow: "0 10px 40px 0 rgba(0, 0, 0, 0.6)",
+          zIndex: 10000,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          maxWidth: 420,
+          animation: "slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+          fontFamily: "'Inter', sans-serif"
+        }}>
+          <span style={{ fontSize: 20, color: toast.type === "success" ? S.gold : "#ef4444" }}>
+            {toast.type === "success" ? "🔄" : "⚠️"}
+          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: "1px" }}>
+              {toast.type === "success" ? "LIVE SYNC STATUS" : "ALERT"}
+            </div>
+            <div style={{ fontSize: 13, color: S.text, lineHeight: 1.4, fontWeight: 500 }}>
+              {toast.message}
+            </div>
+          </div>
+          <button 
+            onClick={() => setToast(prev => ({ ...prev, visible: false }))}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: S.muted,
+              fontSize: 16,
+              cursor: "pointer",
+              marginLeft: 14,
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transition: "color 0.2s"
+            }}
+            onMouseOver={(e) => e.target.style.color = S.text}
+            onMouseOut={(e) => e.target.style.color = S.muted}
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
