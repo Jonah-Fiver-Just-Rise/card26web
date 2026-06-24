@@ -225,6 +225,39 @@ const callChatGPT = async (messages, system) => {
   }
 };
 
+// ── Secure Client-Side CardSight AI API call (with graceful fallback support) ──
+const callCardSightAPI = async (endpoint, options = {}) => {
+  const apiKey = import.meta.env.VITE_CARDSIGHTAI_API_KEY;
+  if (!apiKey || apiKey === "YOUR_CARDSIGHT_API_KEY" || apiKey.trim() === "") {
+    return null; // Key not set, triggers fallback
+  }
+  try {
+    const res = await fetchWithTimeout(`https://api.cardsight.ai${endpoint}`, {
+      ...options,
+      headers: {
+        "X-API-Key": apiKey.trim(),
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+    if (res.status === 401 || res.status === 403) {
+      console.warn("CardSight API key invalid or unauthorized.");
+      return "__INVALID_KEY__";
+    }
+    if (res.status === 429) {
+      console.warn("CardSight API rate limit or quota exceeded.");
+      return "__QUOTA_EXCEEDED__";
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return await res.json();
+  } catch (err) {
+    console.error("CardSight API call failed:", err);
+    throw err;
+  }
+};
+
 // ── Quota Exceeded Banner ──────────────────────────────────────────────────
 const QuotaBanner = () => (
   <div style={{
@@ -329,6 +362,37 @@ function GradingTab() {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
+    try {
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      if (apiRes === "__INVALID_KEY__") {
+        setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes === "__QUOTA_EXCEEDED__") {
+        setSearchError("CardSight AI rate limit exceeded.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
+        const mapped = apiRes.data.map(item => ({
+          player: item.name || item.player || "",
+          year: parseInt(item.year) || new Date().getFullYear(),
+          set: item.set || item.setName || "",
+          sport: item.sport || item.segment || "Basketball",
+          rawValue: item.estimatedPrice || item.price || 0,
+          psa10Value: Math.round((item.estimatedPrice || item.price || 0) * 1.5),
+          psa9Value: Math.round((item.estimatedPrice || item.price || 0) * 1.1)
+        }));
+        setSearchResults(mapped.slice(0, 3));
+        setSearchCatalogLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("CardSight catalog search failed, falling back to simulation:", e);
+    }
+
+    // Fallback: OpenAI simulation
     const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'rawValue' (number), 'psa10Value' (number), 'psa9Value' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"rawValue\":800,\"psa10Value\":4500,\"psa9Value\":1500}]";
     try {
       const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
@@ -531,6 +595,35 @@ function WatchlistTab({ user }) {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
+    try {
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      if (apiRes === "__INVALID_KEY__") {
+        setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes === "__QUOTA_EXCEEDED__") {
+        setSearchError("CardSight AI rate limit exceeded.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
+        const mapped = apiRes.data.map(item => ({
+          player: item.name || item.player || "",
+          year: parseInt(item.year) || new Date().getFullYear(),
+          set: item.set || item.setName || "",
+          sport: item.sport || item.segment || "Basketball",
+          estimatedPrice: item.estimatedPrice || item.price || 0
+        }));
+        setSearchResults(mapped.slice(0, 3));
+        setSearchCatalogLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("CardSight catalog search failed, falling back to simulation:", e);
+    }
+
+    // Fallback: OpenAI simulation
     const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
     try {
       const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
@@ -598,6 +691,47 @@ function WatchlistTab({ user }) {
     if (!ebayQuery.trim() || ebayLoading) return;
     setEbayLoading(true);
     setEbayResult("");
+    try {
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(ebayQuery)}`);
+      if (searchRes === "__INVALID_KEY__") {
+        setEbayResult("⚠️ CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        setEbayLoading(false);
+        return;
+      }
+      if (searchRes === "__QUOTA_EXCEEDED__") {
+        setEbayResult("⚠️ CardSight AI rate limit exceeded.");
+        setEbayLoading(false);
+        return;
+      }
+      if (searchRes && searchRes.data && searchRes.data.length > 0) {
+        const cardId = searchRes.data[0].id;
+        const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
+        if (pricingRes && pricingRes.data) {
+          const sales = pricingRes.data.sales || pricingRes.data || [];
+          const avgPrice = pricingRes.data.averagePrice || pricingRes.data.average || (sales.length > 0 ? sales.reduce((sum, s) => sum + (s.price || 0), 0) / sales.length : 0);
+          if (sales.length > 0 || avgPrice > 0) {
+            let resultStr = `**30-Day Average:** $${Math.round(avgPrice)}\n\n`;
+            resultStr += `**Recent Sold Prices (CardSight AI Live Data):**\n`;
+            sales.slice(0, 5).forEach((sale) => {
+              const dateStr = sale.date ? new Date(sale.date).toLocaleDateString() : 'Recent';
+              const source = sale.source || 'eBay';
+              const grade = sale.grade || 'Raw';
+              resultStr += `*   $${sale.price} (${dateStr}) - Grade: ${grade} [${source}]\n`;
+            });
+            if (pricingRes.data.trend) {
+              resultStr += `\n**Trend Note:** ${pricingRes.data.trend}`;
+            }
+            setEbayResult(resultStr);
+            setEbayLoading(false);
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("CardSight live comps query failed, falling back to simulation:", err);
+    }
+
+    // Fallback: OpenAI comps simulation
     try {
       const system = `You are a sports card pricing expert simulating eBay sold listing data. Based on your knowledge of the market, provide realistic recent sold prices for the card queried. Format as: 3–5 recent "sold" prices with dates, a 30-day average, and a trend note. Be specific and realistic. Under 150 words.`;
       const res = await callChatGPT([{ role: "user", content: `Simulate recent eBay sold listings for: ${ebayQuery}` }], system);
@@ -1035,21 +1169,56 @@ export default function App() {
     if (!newCard.player) return;
     setAutoPricingLoading(true);
     setSearchError("");
+    try {
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(`${newCard.year} ${newCard.player} ${newCard.set}`)}`);
+      if (searchRes === "__INVALID_KEY__") {
+        setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        setAutoPricingLoading(false);
+        return;
+      }
+      if (searchRes === "__QUOTA_EXCEEDED__") {
+        setSearchError("CardSight AI rate limit exceeded.");
+        setAutoPricingLoading(false);
+        return;
+      }
+      if (searchRes && searchRes.data && searchRes.data.length > 0) {
+        const cardId = searchRes.data[0].id;
+        const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
+        if (pricingRes && pricingRes.data) {
+          const sales = pricingRes.data.sales || pricingRes.data || [];
+          const avgPrice = pricingRes.data.averagePrice || pricingRes.data.average || (sales.length > 0 ? sales.reduce((sum, s) => sum + (s.price || 0), 0) / sales.length : 0);
+          if (avgPrice > 0) {
+            setNewCard((prev) => ({ ...prev, currentValue: Math.round(avgPrice) }));
+            setAutoPricingLoading(false);
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("CardSight auto-pricing failed, falling back to simulation:", e);
+    }
+
+    // Fallback: OpenAI simulation
     const system = "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450).";
-    const result = await callChatGPT([{ role: "user", content: `Estimated market value of sports card: ${newCard.year} ${newCard.player} ${newCard.set} ${newCard.grade}` }], system);
-    if (result === QUOTA_EXCEEDED) {
-      setSearchError("QUOTA_EXCEEDED");
+    try {
+      const result = await callChatGPT([{ role: "user", content: `Estimated market value of sports card: ${newCard.year} ${newCard.player} ${newCard.set} ${newCard.grade}` }], system);
+      if (result === QUOTA_EXCEEDED) {
+        setSearchError("QUOTA_EXCEEDED");
+        setAutoPricingLoading(false);
+        return;
+      }
+      if (result === INVALID_KEY) {
+        setSearchError("INVALID_KEY");
+        setAutoPricingLoading(false);
+        return;
+      }
+      const cleanedPrice = parseFloat(result.replace(/[^0-9.]/g, '')) || 0.0;
+      setNewCard((prev) => ({ ...prev, currentValue: cleanedPrice }));
+    } catch (e) {
+      console.error("Auto-pricing simulation failed:", e);
+    } finally {
       setAutoPricingLoading(false);
-      return;
     }
-    if (result === INVALID_KEY) {
-      setSearchError("INVALID_KEY");
-      setAutoPricingLoading(false);
-      return;
-    }
-    const cleanedPrice = parseFloat(result.replace(/[^0-9.]/g, '')) || 0.0;
-    setNewCard((prev) => ({ ...prev, currentValue: cleanedPrice }));
-    setAutoPricingLoading(false);
   };
 
   const runCatalogSearch = async () => {
@@ -1057,6 +1226,35 @@ export default function App() {
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
+    try {
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      if (apiRes === "__INVALID_KEY__") {
+        setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes === "__QUOTA_EXCEEDED__") {
+        setSearchError("CardSight AI rate limit exceeded.");
+        setSearchCatalogLoading(false);
+        return;
+      }
+      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
+        const mapped = apiRes.data.map(item => ({
+          player: item.name || item.player || "",
+          year: parseInt(item.year) || new Date().getFullYear(),
+          set: item.set || item.setName || "",
+          sport: item.sport || item.segment || "Basketball",
+          estimatedPrice: item.estimatedPrice || item.price || 0
+        }));
+        setSearchResults(mapped.slice(0, 3));
+        setSearchCatalogLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("CardSight catalog search failed, falling back to simulation:", e);
+    }
+
+    // Fallback: OpenAI simulation
     const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
     try {
       const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);

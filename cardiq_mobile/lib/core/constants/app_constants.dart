@@ -8,4 +8,8 @@ class AppConstants {
   static const String colPortfolios = "portfolios";
   static const String colWatchlists = "watchlists";
   static const String colChats = "chats";
+
+  // CardSight AI (Get your key from cardsight.ai)
+  static const String cardSightApiKey = "YOUR_CARDSIGHT_API_KEY";
 }
+
