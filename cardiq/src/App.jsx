@@ -14,7 +14,8 @@ import {
   onSnapshot,
   query,
   orderBy,
-  setDoc
+  setDoc,
+  updateDoc
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
@@ -1335,6 +1336,38 @@ export default function App() {
     }
   };
 
+  const [syncingPrices, setSyncingPrices] = useState(false);
+  const syncPortfolioPrices = async () => {
+    if (syncingPrices || !cards.length) return;
+    setSyncingPrices(true);
+    setFirebaseError("");
+    try {
+      let updatedCount = 0;
+      for (const card of cards) {
+        const qStr = `${card.year} ${card.player} ${card.set}`;
+        const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(qStr)}`);
+        const searchResults = searchRes?.results || searchRes?.data;
+        if (searchRes && searchResults && searchResults.length > 0) {
+          const cardId = searchResults[0].id;
+          const newPrice = await fetchCardPrice(cardId);
+          if (newPrice > 0 && Math.round(newPrice) !== Math.round(card.currentValue)) {
+            const cardRef = doc(db, `users/${user.uid}/portfolios`, card.id);
+            await updateDoc(cardRef, {
+              currentValue: newPrice
+            });
+            updatedCount++;
+          }
+        }
+      }
+      alert(`Sync Complete! Updated live valuations for ${updatedCount} cards using fresh CardSight AI comps.`);
+    } catch (err) {
+      console.error("Failed to sync portfolio prices:", err);
+      setFirebaseError(`Price sync failed: ${err.message}`);
+    } finally {
+      setSyncingPrices(false);
+    }
+  };
+
   const runCatalogSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearchCatalogLoading(true);
@@ -1545,15 +1578,20 @@ export default function App() {
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ ...S.label, marginBottom: 0 }}>Collection</span>
-              <button onClick={() => {
-                if (showAddCard) {
-                  setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
-                  setSearchQuery("");
-                  setSearchResults([]);
-                  setSearchError("");
-                }
-                setShowAddCard(!showAddCard);
-              }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={syncPortfolioPrices} disabled={syncingPrices} style={{ background: "none", border: `1px solid ${S.gold}`, color: S.gold, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: syncingPrices ? 0.5 : 1 }}>
+                  {syncingPrices ? "Syncing..." : "🔄 Sync Live Prices"}
+                </button>
+                <button onClick={() => {
+                  if (showAddCard) {
+                    setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+                    setSearchQuery("");
+                    setSearchResults([]);
+                    setSearchError("");
+                  }
+                  setShowAddCard(!showAddCard);
+                }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
+              </div>
             </div>
 
             {showAddCard && (
