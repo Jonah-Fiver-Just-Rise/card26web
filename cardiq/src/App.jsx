@@ -363,7 +363,7 @@ function GradingTab() {
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -374,11 +374,12 @@ function GradingTab() {
         setSearchCatalogLoading(false);
         return;
       }
-      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
-        const mapped = apiRes.data.map(item => ({
+      const results = apiRes?.results || apiRes?.data;
+      if (apiRes && results && Array.isArray(results)) {
+        const mapped = results.map(item => ({
           player: item.name || item.player || "",
           year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.set || item.setName || "",
+          set: item.setName || item.set || "",
           sport: item.sport || item.segment || "Basketball",
           rawValue: item.estimatedPrice || item.price || 0,
           psa10Value: Math.round((item.estimatedPrice || item.price || 0) * 1.5),
@@ -596,7 +597,7 @@ function WatchlistTab({ user }) {
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -607,11 +608,12 @@ function WatchlistTab({ user }) {
         setSearchCatalogLoading(false);
         return;
       }
-      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
-        const mapped = apiRes.data.map(item => ({
+      const results = apiRes?.results || apiRes?.data;
+      if (apiRes && results && Array.isArray(results)) {
+        const mapped = results.map(item => ({
           player: item.name || item.player || "",
           year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.set || item.setName || "",
+          set: item.setName || item.set || "",
           sport: item.sport || item.segment || "Basketball",
           estimatedPrice: item.estimatedPrice || item.price || 0
         }));
@@ -692,7 +694,7 @@ function WatchlistTab({ user }) {
     setEbayLoading(true);
     setEbayResult("");
     try {
-      const searchRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(ebayQuery)}`);
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(ebayQuery)}`);
       if (searchRes === "__INVALID_KEY__") {
         setEbayResult("⚠️ CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setEbayLoading(false);
@@ -703,23 +705,36 @@ function WatchlistTab({ user }) {
         setEbayLoading(false);
         return;
       }
-      if (searchRes && searchRes.data && searchRes.data.length > 0) {
-        const cardId = searchRes.data[0].id;
+      const searchResults = searchRes?.results || searchRes?.data;
+      if (searchRes && searchResults && searchResults.length > 0) {
+        const cardId = searchResults[0].id;
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
-        if (pricingRes && pricingRes.data) {
-          const sales = pricingRes.data.sales || pricingRes.data || [];
-          const avgPrice = pricingRes.data.averagePrice || pricingRes.data.average || (sales.length > 0 ? sales.reduce((sum, s) => sum + (s.price || 0), 0) / sales.length : 0);
+        if (pricingRes) {
+          const rawSales = pricingRes.raw?.records || [];
+          const gradedSales = pricingRes.graded || [];
+          const sales = [...rawSales, ...gradedSales];
+          let total = 0;
+          let count = 0;
+          sales.forEach(s => {
+            const p = parseFloat(s.price || s.price_usd || s.value) || 0;
+            if (p > 0) {
+              total += p;
+              count++;
+            }
+          });
+          const avgPrice = count > 0 ? total / count : 0;
           if (sales.length > 0 || avgPrice > 0) {
             let resultStr = `**30-Day Average:** $${Math.round(avgPrice)}\n\n`;
             resultStr += `**Recent Sold Prices (CardSight AI Live Data):**\n`;
             sales.slice(0, 5).forEach((sale) => {
-              const dateStr = sale.date ? new Date(sale.date).toLocaleDateString() : 'Recent';
+              const price = sale.price || sale.price_usd || sale.value || 0;
+              const dateStr = sale.date || sale.sale_date ? new Date(sale.date || sale.sale_date).toLocaleDateString() : 'Recent';
               const source = sale.source || 'eBay';
               const grade = sale.grade || 'Raw';
-              resultStr += `*   $${sale.price} (${dateStr}) - Grade: ${grade} [${source}]\n`;
+              resultStr += `*   $${price} (${dateStr}) - Grade: ${grade} [${source}]\n`;
             });
-            if (pricingRes.data.trend) {
-              resultStr += `\n**Trend Note:** ${pricingRes.data.trend}`;
+            if (pricingRes.trend) {
+              resultStr += `\n**Trend Note:** ${pricingRes.trend}`;
             }
             setEbayResult(resultStr);
             setEbayLoading(false);
@@ -1170,7 +1185,7 @@ export default function App() {
     setAutoPricingLoading(true);
     setSearchError("");
     try {
-      const searchRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(`${newCard.year} ${newCard.player} ${newCard.set}`)}`);
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(`${newCard.year} ${newCard.player} ${newCard.set}`)}`);
       if (searchRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setAutoPricingLoading(false);
@@ -1181,12 +1196,24 @@ export default function App() {
         setAutoPricingLoading(false);
         return;
       }
-      if (searchRes && searchRes.data && searchRes.data.length > 0) {
-        const cardId = searchRes.data[0].id;
+      const searchResults = searchRes?.results || searchRes?.data;
+      if (searchRes && searchResults && searchResults.length > 0) {
+        const cardId = searchResults[0].id;
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
-        if (pricingRes && pricingRes.data) {
-          const sales = pricingRes.data.sales || pricingRes.data || [];
-          const avgPrice = pricingRes.data.averagePrice || pricingRes.data.average || (sales.length > 0 ? sales.reduce((sum, s) => sum + (s.price || 0), 0) / sales.length : 0);
+        if (pricingRes) {
+          const rawSales = pricingRes.raw?.records || [];
+          const gradedSales = pricingRes.graded || [];
+          const sales = [...rawSales, ...gradedSales];
+          let total = 0;
+          let count = 0;
+          sales.forEach(s => {
+            const p = parseFloat(s.price || s.price_usd || s.value) || 0;
+            if (p > 0) {
+              total += p;
+              count++;
+            }
+          });
+          const avgPrice = count > 0 ? total / count : 0;
           if (avgPrice > 0) {
             setNewCard((prev) => ({ ...prev, currentValue: Math.round(avgPrice) }));
             setAutoPricingLoading(false);
@@ -1227,7 +1254,7 @@ export default function App() {
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?query=${encodeURIComponent(searchQuery)}`);
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -1238,11 +1265,12 @@ export default function App() {
         setSearchCatalogLoading(false);
         return;
       }
-      if (apiRes && apiRes.data && Array.isArray(apiRes.data)) {
-        const mapped = apiRes.data.map(item => ({
+      const results = apiRes?.results || apiRes?.data;
+      if (apiRes && results && Array.isArray(results)) {
+        const mapped = results.map(item => ({
           player: item.name || item.player || "",
           year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.set || item.setName || "",
+          set: item.setName || item.set || "",
           sport: item.sport || item.segment || "Basketball",
           estimatedPrice: item.estimatedPrice || item.price || 0
         }));

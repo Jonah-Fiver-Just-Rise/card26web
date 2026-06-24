@@ -41,7 +41,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
     final cardSightKey = AppConstants.cardSightApiKey;
     if (cardSightKey != "YOUR_CARDSIGHT_API_KEY" && cardSightKey.isNotEmpty) {
       try {
-        final uri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?query=${Uri.encodeComponent(query)}");
+        final uri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(query)}");
         final res = await http.get(
           uri,
           headers: {
@@ -52,20 +52,22 @@ class _PortfolioTabState extends State<PortfolioTab> {
 
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
-          if (data != null && data['data'] != null) {
-            final list = data['data'] as List<dynamic>;
-            final parsed = list.map((item) => {
-              'player': item['name'] ?? item['player'] ?? '',
-              'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
-              'set': item['set'] ?? item['setName'] ?? '',
-              'sport': item['sport'] ?? item['segment'] ?? 'Basketball',
-              'estimatedPrice': item['estimatedPrice'] ?? item['price'] ?? 0.0,
-            }).toList();
-            setModalState(() {
-              _searchResults = parsed;
-              _searchingCatalog = false;
-            });
-            return;
+          if (data != null) {
+            final list = data['results'] ?? data['data'];
+            if (list != null && list is List) {
+              final parsed = list.map((item) => {
+                'player': item['name'] ?? item['player'] ?? '',
+                'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
+                'set': item['setName'] ?? item['set'] ?? '',
+                'sport': item['sport'] ?? item['segment'] ?? 'Basketball',
+                'estimatedPrice': item['estimatedPrice'] ?? item['price'] ?? 0.0,
+              }).toList();
+              setModalState(() {
+                _searchResults = parsed;
+                _searchingCatalog = false;
+              });
+              return;
+            }
           }
         }
       } catch (e) {
@@ -120,7 +122,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
     final cardSightKey = AppConstants.cardSightApiKey;
     if (cardSightKey != "YOUR_CARDSIGHT_API_KEY" && cardSightKey.isNotEmpty) {
       try {
-        final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?query=${Uri.encodeComponent("${_yearController.text} $player ${_setController.text}")}");
+        final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent("${_yearController.text} $player ${_setController.text}")}");
         final searchRes = await http.get(
           searchUri,
           headers: {
@@ -131,43 +133,50 @@ class _PortfolioTabState extends State<PortfolioTab> {
 
         if (searchRes.statusCode == 200) {
           final searchData = jsonDecode(searchRes.body);
-          if (searchData != null && searchData['data'] != null && (searchData['data'] as List).isNotEmpty) {
-            final cardId = searchData['data'][0]['id'];
-            final pricingUri = Uri.parse("https://api.cardsight.ai/v1/pricing/$cardId");
-            final pricingRes = await http.get(
-              pricingUri,
-              headers: {
-                "X-API-Key": cardSightKey,
-                "Content-Type": "application/json",
-              },
-            ).timeout(const Duration(seconds: 10));
+          if (searchData != null) {
+            final searchResults = searchData['results'] ?? searchData['data'];
+            if (searchResults != null && searchResults is List && searchResults.isNotEmpty) {
+              final cardId = searchResults[0]['id'];
+              final pricingUri = Uri.parse("https://api.cardsight.ai/v1/pricing/$cardId");
+              final pricingRes = await http.get(
+                pricingUri,
+                headers: {
+                  "X-API-Key": cardSightKey,
+                  "Content-Type": "application/json",
+                },
+              ).timeout(const Duration(seconds: 10));
 
-            if (pricingRes.statusCode == 200) {
-              final pricingData = jsonDecode(pricingRes.body);
-              if (pricingData != null) {
-                final sales = pricingData['sales'] ?? pricingData;
-                double avgPrice = 0.0;
-                if (pricingData['averagePrice'] != null) {
-                  avgPrice = (pricingData['averagePrice'] as num).toDouble();
-                } else if (pricingData['average'] != null) {
-                  avgPrice = (pricingData['average'] as num).toDouble();
-                } else if (sales is List && sales.isNotEmpty) {
-                  double total = 0.0;
-                  int count = 0;
-                  for (var s in sales) {
-                    if (s['price'] != null) {
-                      total += (s['price'] as num).toDouble();
-                      count++;
+              if (pricingRes.statusCode == 200) {
+                final pricingData = jsonDecode(pricingRes.body);
+                if (pricingData != null) {
+                  final rawSales = pricingData['raw']?['records'] ?? [];
+                  final gradedSales = pricingData['graded'] ?? [];
+                  final List<dynamic> sales = [...rawSales, ...gradedSales];
+                  double avgPrice = 0.0;
+                  
+                  if (pricingData['averagePrice'] != null) {
+                    avgPrice = (pricingData['averagePrice'] as num).toDouble();
+                  } else if (pricingData['average'] != null) {
+                    avgPrice = (pricingData['average'] as num).toDouble();
+                  } else if (sales.isNotEmpty) {
+                    double total = 0.0;
+                    int count = 0;
+                    for (var s in sales) {
+                      final priceVal = s['price'] ?? s['price_usd'] ?? s['value'];
+                      if (priceVal != null) {
+                        total += (priceVal as num).toDouble();
+                        count++;
+                      }
                     }
+                    if (count > 0) avgPrice = total / count;
                   }
-                  if (count > 0) avgPrice = total / count;
-                }
-                if (avgPrice > 0) {
-                  setState(() {
-                    _valueController.text = avgPrice.toStringAsFixed(0);
-                    _autoPricing = false;
-                  });
-                  return;
+                  if (avgPrice > 0) {
+                    setState(() {
+                      _valueController.text = avgPrice.toStringAsFixed(0);
+                      _autoPricing = false;
+                    });
+                    return;
+                  }
                 }
               }
             }
