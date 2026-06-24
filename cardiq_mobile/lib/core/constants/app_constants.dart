@@ -10,6 +10,6 @@ class AppConstants {
   static const String colChats = "chats";
 
   // CardSight AI (Get your key from cardsight.ai)
-  static const String cardSightApiKey = "YOUR_CARDSIGHT_API_KEY";
+  static const String cardSightApiKey = "47e9ae39fc7e423ab29e095d95038677";
 }
 

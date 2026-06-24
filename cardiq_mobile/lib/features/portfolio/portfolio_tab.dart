@@ -55,13 +55,97 @@ class _PortfolioTabState extends State<PortfolioTab> {
           if (data != null) {
             final list = data['results'] ?? data['data'];
             if (list != null && list is List) {
-              final parsed = list.map((item) => {
-                'player': item['name'] ?? item['player'] ?? '',
-                'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
-                'set': item['setName'] ?? item['set'] ?? '',
-                'sport': item['sport'] ?? item['segment'] ?? 'Basketball',
-                'estimatedPrice': item['estimatedPrice'] ?? item['price'] ?? 0.0,
+              final parsedPromises = list.take(5).map((item) async {
+                final cardId = item['id'];
+                double price = 0.0;
+                try {
+                  final pricingUri = Uri.parse("https://api.cardsight.ai/v1/pricing/$cardId");
+                  final pricingRes = await http.get(
+                    pricingUri,
+                    headers: {
+                      "X-API-Key": cardSightKey,
+                      "Content-Type": "application/json",
+                    },
+                  ).timeout(const Duration(seconds: 4));
+                  
+                  if (pricingRes.statusCode == 200) {
+                    final pricingData = jsonDecode(pricingRes.body);
+                    if (pricingData != null) {
+                      final rawSales = pricingData['raw']?['records'] ?? [];
+                      final gradedSales = pricingData['graded'] ?? [];
+                      final List<dynamic> sales = [...rawSales, ...gradedSales];
+                      double avgPrice = 0.0;
+                      if (pricingData['averagePrice'] != null) {
+                        avgPrice = double.tryParse(pricingData['averagePrice'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                      } else if (pricingData['average'] != null) {
+                        avgPrice = double.tryParse(pricingData['average'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                      } else if (sales.isNotEmpty) {
+                        double total = 0.0;
+                        int count = 0;
+                        for (var s in sales) {
+                          final p = s['price'] ?? s['price_usd'] ?? s['value'];
+                          if (p != null) {
+                            final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                            if (parsedVal > 0) {
+                              total += parsedVal;
+                              count++;
+                            }
+                          }
+                        }
+                        if (count > 0) avgPrice = total / count;
+                      }
+                      price = avgPrice;
+                    }
+                  }
+                } catch (e) {
+                  debugPrint("Failed to fetch price for $cardId: $e");
+                }
+                
+                if (price == 0.0) {
+                  try {
+                    final marketUri = Uri.parse("https://api.cardsight.ai/v1/marketplace/$cardId");
+                    final marketRes = await http.get(
+                      marketUri,
+                      headers: {
+                        "X-API-Key": cardSightKey,
+                        "Content-Type": "application/json",
+                      },
+                    ).timeout(const Duration(seconds: 4));
+                    
+                    if (marketRes.statusCode == 200) {
+                      final marketData = jsonDecode(marketRes.body);
+                      if (marketData != null && marketData['raw']?['records'] != null) {
+                        final records = marketData['raw']['records'] as List;
+                        double total = 0.0;
+                        int count = 0;
+                        for (var r in records) {
+                          final p = r['price'] ?? r['price_usd'] ?? r['value'];
+                          if (p != null) {
+                            final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                            if (parsedVal > 0) {
+                              total += parsedVal;
+                              count++;
+                            }
+                          }
+                        }
+                        if (count > 0) price = total / count;
+                      }
+                    }
+                  } catch (e) {
+                    debugPrint("Failed to fetch marketplace price for $cardId: $e");
+                  }
+                }
+                
+                return {
+                  'player': item['name'] ?? item['player'] ?? '',
+                  'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
+                  'set': item['setName'] ?? item['set'] ?? '',
+                  'sport': item['sport'] ?? item['segment'] ?? 'Basketball',
+                  'estimatedPrice': price,
+                };
               }).toList();
+              
+              final parsed = await Future.wait(parsedPromises);
               setModalState(() {
                 _searchResults = parsed;
                 _searchingCatalog = false;
@@ -155,17 +239,20 @@ class _PortfolioTabState extends State<PortfolioTab> {
                   double avgPrice = 0.0;
                   
                   if (pricingData['averagePrice'] != null) {
-                    avgPrice = (pricingData['averagePrice'] as num).toDouble();
+                    avgPrice = double.tryParse(pricingData['averagePrice'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
                   } else if (pricingData['average'] != null) {
-                    avgPrice = (pricingData['average'] as num).toDouble();
+                    avgPrice = double.tryParse(pricingData['average'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
                   } else if (sales.isNotEmpty) {
                     double total = 0.0;
                     int count = 0;
                     for (var s in sales) {
                       final priceVal = s['price'] ?? s['price_usd'] ?? s['value'];
                       if (priceVal != null) {
-                        total += (priceVal as num).toDouble();
-                        count++;
+                        final parsedVal = double.tryParse(priceVal.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                        if (parsedVal > 0) {
+                          total += parsedVal;
+                          count++;
+                        }
                       }
                     }
                     if (count > 0) avgPrice = total / count;

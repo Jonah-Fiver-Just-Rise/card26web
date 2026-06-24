@@ -36,7 +36,14 @@ const HISTORY = [
 
 const TABS = ["Portfolio", "History", "Watchlist", "Grading", "Advisor", "Market"];
 
-const fmt = (n) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 0 })}`;
+const fmt = (n) => {
+  const num = Number(n);
+  if (isNaN(num) || num <= 0) return "$0";
+  if (num < 10) {
+    return `$${num.toFixed(2)}`;
+  }
+  return `$${Math.round(num).toLocaleString("en-US")}`;
+};
 const gainColor = (n) => (n >= 0 ? "#22c55e" : "#ef4444");
 const S = { // shared inline style tokens
   card: { background: "#111118", border: "1px solid #1e1e2e", borderRadius: 10, padding: "16px 18px" },
@@ -229,9 +236,11 @@ const callChatGPT = async (messages, system) => {
 const callCardSightAPI = async (endpoint, options = {}) => {
   const apiKey = import.meta.env.VITE_CARDSIGHTAI_API_KEY;
   if (!apiKey || apiKey === "YOUR_CARDSIGHT_API_KEY" || apiKey.trim() === "") {
+    console.log(`[CardSight] API Key missing or default, skipping endpoint: ${endpoint}`);
     return null; // Key not set, triggers fallback
   }
   try {
+    console.log(`[CardSight] Fetching endpoint: ${endpoint}`);
     const res = await fetchWithTimeout(`https://api.cardsight.ai${endpoint}`, {
       ...options,
       headers: {
@@ -240,6 +249,7 @@ const callCardSightAPI = async (endpoint, options = {}) => {
         ...options.headers,
       },
     });
+    console.log(`[CardSight] Endpoint response status: ${res.status} for ${endpoint}`);
     if (res.status === 401 || res.status === 403) {
       console.warn("CardSight API key invalid or unauthorized.");
       return "__INVALID_KEY__";
@@ -251,11 +261,69 @@ const callCardSightAPI = async (endpoint, options = {}) => {
     if (!res.ok) {
       throw new Error(`HTTP error! status: ${res.status}`);
     }
-    return await res.json();
+    const json = await res.json();
+    console.log(`[CardSight] Response data for ${endpoint}:`, json);
+    return json;
   } catch (err) {
     console.error("CardSight API call failed:", err);
     throw err;
   }
+};
+
+const fetchCardPrice = async (cardId) => {
+  try {
+    const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
+    if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
+      const rawSales = pricingRes.raw?.records || [];
+      const gradedSales = Array.isArray(pricingRes.graded) 
+        ? pricingRes.graded 
+        : (pricingRes.graded?.records || []);
+      const sales = [...rawSales, ...gradedSales];
+      let total = 0;
+      let count = 0;
+      sales.forEach(s => {
+        const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+        if (val !== undefined && val !== null) {
+          const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+          if (p > 0) {
+            total += p;
+            count++;
+          }
+        }
+      });
+      const avgPrice = count > 0 ? total / count : 0;
+      const finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+      console.log(`[CardSight] fetchCardPrice for ID ${cardId} pricing average: ${finalPrice}`);
+      if (finalPrice > 0) return finalPrice;
+    }
+  } catch (e) {
+    console.warn("Pricing lookup failed for ID:", cardId, e);
+  }
+  try {
+    const marketRes = await callCardSightAPI(`/v1/marketplace/${cardId}`);
+    if (marketRes && typeof marketRes === "object" && marketRes !== null) {
+      const records = marketRes.raw?.records || (Array.isArray(marketRes.raw) ? marketRes.raw : []);
+      let total = 0;
+      let count = 0;
+      records.forEach(r => {
+        const val = r.price !== undefined ? r.price : (r.price_usd !== undefined ? r.price_usd : r.value);
+        if (val !== undefined && val !== null) {
+          const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+          if (p > 0) {
+            total += p;
+            count++;
+          }
+        }
+      });
+      const avgMarket = count > 0 ? total / count : 0;
+      console.log(`[CardSight] fetchCardPrice for ID ${cardId} marketplace average: ${avgMarket}`);
+      if (count > 0) return avgMarket;
+    }
+  } catch (e) {
+    console.warn("Marketplace lookup failed for ID:", cardId, e);
+  }
+  console.log(`[CardSight] fetchCardPrice for ID ${cardId} resolved to 0`);
+  return 0;
 };
 
 // ── Quota Exceeded Banner ──────────────────────────────────────────────────
@@ -376,16 +444,20 @@ function GradingTab() {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mapped = results.map(item => ({
-          player: item.name || item.player || "",
-          year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.setName || item.set || "",
-          sport: item.sport || item.segment || "Basketball",
-          rawValue: item.estimatedPrice || item.price || 0,
-          psa10Value: Math.round((item.estimatedPrice || item.price || 0) * 1.5),
-          psa9Value: Math.round((item.estimatedPrice || item.price || 0) * 1.1)
-        }));
-        setSearchResults(mapped.slice(0, 3));
+        const mappedPromises = results.slice(0, 3).map(async (item) => {
+          const price = await fetchCardPrice(item.id);
+          return {
+            player: item.name || item.player || "",
+            year: parseInt(item.year) || new Date().getFullYear(),
+            set: item.setName || item.set || "",
+            sport: item.sport || item.segment || "Basketball",
+            rawValue: price,
+            psa10Value: price * 1.5 || 15,
+            psa9Value: price * 1.1 || 8
+          };
+        });
+        const mapped = await Promise.all(mappedPromises);
+        setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
       }
@@ -610,14 +682,18 @@ function WatchlistTab({ user }) {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mapped = results.map(item => ({
-          player: item.name || item.player || "",
-          year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.setName || item.set || "",
-          sport: item.sport || item.segment || "Basketball",
-          estimatedPrice: item.estimatedPrice || item.price || 0
-        }));
-        setSearchResults(mapped.slice(0, 3));
+        const mappedPromises = results.slice(0, 3).map(async (item) => {
+          const price = await fetchCardPrice(item.id);
+          return {
+            player: item.name || item.player || "",
+            year: parseInt(item.year) || new Date().getFullYear(),
+            set: item.setName || item.set || "",
+            sport: item.sport || item.segment || "Basketball",
+            estimatedPrice: price
+          };
+        });
+        const mapped = await Promise.all(mappedPromises);
+        setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
       }
@@ -709,29 +785,35 @@ function WatchlistTab({ user }) {
       if (searchRes && searchResults && searchResults.length > 0) {
         const cardId = searchResults[0].id;
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
-        if (pricingRes) {
+        if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
           const rawSales = pricingRes.raw?.records || [];
-          const gradedSales = pricingRes.graded || [];
+          const gradedSales = Array.isArray(pricingRes.graded) 
+            ? pricingRes.graded 
+            : (pricingRes.graded?.records || []);
           const sales = [...rawSales, ...gradedSales];
           let total = 0;
           let count = 0;
           sales.forEach(s => {
-            const p = parseFloat(s.price || s.price_usd || s.value) || 0;
-            if (p > 0) {
-              total += p;
-              count++;
+            const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+            if (val !== undefined && val !== null) {
+              const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+              if (p > 0) {
+                total += p;
+                count++;
+              }
             }
           });
           const avgPrice = count > 0 ? total / count : 0;
           if (sales.length > 0 || avgPrice > 0) {
-            let resultStr = `**30-Day Average:** $${Math.round(avgPrice)}\n\n`;
+            let resultStr = `**30-Day Average:** ${fmt(avgPrice)}\n\n`;
             resultStr += `**Recent Sold Prices (CardSight AI Live Data):**\n`;
             sales.slice(0, 5).forEach((sale) => {
-              const price = sale.price || sale.price_usd || sale.value || 0;
+              const val = sale.price !== undefined ? sale.price : (sale.price_usd !== undefined ? sale.price_usd : sale.value);
+              const price = val !== undefined && val !== null ? parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0 : 0;
               const dateStr = sale.date || sale.sale_date ? new Date(sale.date || sale.sale_date).toLocaleDateString() : 'Recent';
               const source = sale.source || 'eBay';
               const grade = sale.grade || 'Raw';
-              resultStr += `*   $${price} (${dateStr}) - Grade: ${grade} [${source}]\n`;
+              resultStr += `*   ${fmt(price)} (${dateStr}) - Grade: ${grade} [${source}]\n`;
             });
             if (pricingRes.trend) {
               resultStr += `\n**Trend Note:** ${pricingRes.trend}`;
@@ -1200,22 +1282,27 @@ export default function App() {
       if (searchRes && searchResults && searchResults.length > 0) {
         const cardId = searchResults[0].id;
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
-        if (pricingRes) {
+        if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
           const rawSales = pricingRes.raw?.records || [];
-          const gradedSales = pricingRes.graded || [];
+          const gradedSales = Array.isArray(pricingRes.graded) 
+            ? pricingRes.graded 
+            : (pricingRes.graded?.records || []);
           const sales = [...rawSales, ...gradedSales];
           let total = 0;
           let count = 0;
           sales.forEach(s => {
-            const p = parseFloat(s.price || s.price_usd || s.value) || 0;
-            if (p > 0) {
-              total += p;
-              count++;
+            const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+            if (val !== undefined && val !== null) {
+              const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+              if (p > 0) {
+                total += p;
+                count++;
+              }
             }
           });
           const avgPrice = count > 0 ? total / count : 0;
           if (avgPrice > 0) {
-            setNewCard((prev) => ({ ...prev, currentValue: Math.round(avgPrice) }));
+            setNewCard((prev) => ({ ...prev, currentValue: avgPrice }));
             setAutoPricingLoading(false);
             return;
           }
@@ -1267,14 +1354,18 @@ export default function App() {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mapped = results.map(item => ({
-          player: item.name || item.player || "",
-          year: parseInt(item.year) || new Date().getFullYear(),
-          set: item.setName || item.set || "",
-          sport: item.sport || item.segment || "Basketball",
-          estimatedPrice: item.estimatedPrice || item.price || 0
-        }));
-        setSearchResults(mapped.slice(0, 3));
+        const mappedPromises = results.slice(0, 3).map(async (item) => {
+          const price = await fetchCardPrice(item.id);
+          return {
+            player: item.name || item.player || "",
+            year: parseInt(item.year) || new Date().getFullYear(),
+            set: item.setName || item.set || "",
+            sport: item.sport || item.segment || "Basketball",
+            estimatedPrice: price
+          };
+        });
+        const mapped = await Promise.all(mappedPromises);
+        setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
       }
