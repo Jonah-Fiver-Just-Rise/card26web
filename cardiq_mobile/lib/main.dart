@@ -17,6 +17,14 @@ import 'features/watchlist/watchlist_tab.dart';
 import 'features/grading/grading_tab.dart';
 import 'features/advisor/advisor_tab.dart';
 
+
+
+
+
+// # Run this inside the cardiq_mobile directory:
+// flutter run --dart-define-from-file=../cardiq/.env
+
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {

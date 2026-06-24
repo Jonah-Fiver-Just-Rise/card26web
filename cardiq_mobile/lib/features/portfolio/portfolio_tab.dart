@@ -159,38 +159,88 @@ class _PortfolioTabState extends State<PortfolioTab> {
       }
     }
 
-    // Fallback: OpenAI simulation
+    // Fallback: Gemini simulation
     try {
-      const apiKey = "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";
-      final res = await http.post(
-        Uri.parse("https://api.openai.com/v1/chat/completions"),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $apiKey",
-        },
-        body: jsonEncode({
-          "model": "gpt-4o-mini",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks."
+      final apiKey = AppConstants.geminiApiKey;
+      if (apiKey.isEmpty || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
+        throw Exception("Gemini API key is not configured.");
+      }
+
+      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      String? reply;
+      dynamic lastError;
+
+      for (final model in models) {
+        try {
+          final res = await http.post(
+            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
+            headers: {
+              "Content-Type": "application/json",
+              "X-goog-api-key": apiKey,
             },
-            {
-              "role": "user",
-              "content": "Search query: $query"
+            body: jsonEncode({
+              "systemInstruction": {
+                "parts": [{
+                  "text": "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks. Do not wrap in ```json or any other formatting."
+                }]
+              },
+              "contents": [{
+                "role": "user",
+                "parts": [{"text": "Search query: $query"}]
+              }],
+              "generationConfig": {
+                "maxOutputTokens": 2048,
+                "temperature": 0.2
+              }
+            }),
+          );
+
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            final candidates = data['candidates'] as List?;
+            if (candidates != null && candidates.isNotEmpty) {
+              final content = candidates[0]['content'];
+              if (content != null) {
+                final parts = content['parts'] as List?;
+                if (parts != null && parts.isNotEmpty) {
+                  reply = parts[0]['text'] as String?;
+                  if (reply != null && reply.trim().isNotEmpty) {
+                    break;
+                  }
+                }
+              }
             }
-          ]
-        }),
-      );
-      final data = jsonDecode(res.body);
-      final reply = data['choices'][0]['message']['content'] ?? "";
-      final cleanedResult = reply.substring(reply.indexOf("["), reply.lastIndexOf("]") + 1);
+          } else {
+            lastError = "HTTP ${res.statusCode}: ${res.body}";
+          }
+        } catch (e) {
+          lastError = e;
+        }
+      }
+
+      if (reply == null) {
+        throw Exception(lastError ?? "Empty response from Gemini.");
+      }
+
+      String cleanedResult = reply.trim();
+      if (cleanedResult.contains("```")) {
+        if (cleanedResult.startsWith("```json")) {
+          cleanedResult = cleanedResult.substring(7);
+        } else if (cleanedResult.startsWith("```")) {
+          cleanedResult = cleanedResult.substring(3);
+        }
+        if (cleanedResult.endsWith("```")) {
+          cleanedResult = cleanedResult.substring(0, cleanedResult.length - 3);
+        }
+        cleanedResult = cleanedResult.trim();
+      }
+      
       final parsed = jsonDecode(cleanedResult) as List<dynamic>;
       setModalState(() {
         _searchResults = parsed;
       });
     } catch (e) {
-      debugPrint("Catalog search failed: $e");
+      debugPrint("Catalog search fallback failed: $e");
     } finally {
       setModalState(() {
         _searchingCatalog = false;
@@ -274,35 +324,73 @@ class _PortfolioTabState extends State<PortfolioTab> {
       }
     }
 
-    // Fallback: OpenAI simulation
+    // Fallback: Gemini simulation
     try {
-      const apiKey = "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";
-      final res = await http.post(
-        Uri.parse("https://api.openai.com/v1/chat/completions"),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $apiKey",
-        },
-        body: jsonEncode({
-          "model": "gpt-4o-mini",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450)."
+      final apiKey = AppConstants.geminiApiKey;
+      if (apiKey.isEmpty || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
+        throw Exception("Gemini API key is not configured.");
+      }
+
+      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      String? reply;
+      dynamic lastError;
+
+      for (final model in models) {
+        try {
+          final res = await http.post(
+            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
+            headers: {
+              "Content-Type": "application/json",
+              "X-goog-api-key": apiKey,
             },
-            {
-              "role": "user",
-              "content": "Estimated market value of sports card: ${_yearController.text} $player ${_setController.text} ${_gradeController.text}"
+            body: jsonEncode({
+              "systemInstruction": {
+                "parts": [{
+                  "text": "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450)."
+                }]
+              },
+              "contents": [{
+                "role": "user",
+                "parts": [{"text": "Estimated market value of sports card: ${_yearController.text} $player ${_setController.text} ${_gradeController.text}"}]
+              }],
+              "generationConfig": {
+                "maxOutputTokens": 2048,
+                "temperature": 0.2
+              }
+            }),
+          );
+
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            final candidates = data['candidates'] as List?;
+            if (candidates != null && candidates.isNotEmpty) {
+              final content = candidates[0]['content'];
+              if (content != null) {
+                final parts = content['parts'] as List?;
+                if (parts != null && parts.isNotEmpty) {
+                  reply = parts[0]['text'] as String?;
+                  if (reply != null && reply.trim().isNotEmpty) {
+                    break;
+                  }
+                }
+              }
             }
-          ]
-        }),
-      );
-      final data = jsonDecode(res.body);
-      final reply = data['choices'][0]['message']['content'] ?? "";
+          } else {
+            lastError = "HTTP ${res.statusCode}: ${res.body}";
+          }
+        } catch (e) {
+          lastError = e;
+        }
+      }
+
+      if (reply == null) {
+        throw Exception(lastError ?? "Empty response from Gemini.");
+      }
+
       final double price = double.tryParse(reply.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-      _valueController.text = price.toStringAsFixed(0);
+      _valueController.text = price.toStringAsFixed(2);
     } catch (e) {
-      debugPrint("Auto pricing failed: $e");
+      debugPrint("Auto pricing fallback failed: $e");
     } finally {
       setState(() => _autoPricing = false);
     }

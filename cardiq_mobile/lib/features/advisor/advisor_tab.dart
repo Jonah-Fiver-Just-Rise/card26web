@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_card.dart';
+import '../../core/constants/app_constants.dart';
 
 class AdvisorTab extends StatefulWidget {
   final String uid;
@@ -60,6 +61,34 @@ class _AdvisorTabState extends State<AdvisorTab> {
     }
   }
 
+  List<Map<String, dynamic>> _buildGeminiContents(List<Map<String, String>> msgs) {
+    final mapped = msgs.map((m) => {
+      "role": m["role"] == "assistant" ? "model" : "user",
+      "parts": [{"text": m["content"] ?? ""}]
+    }).toList();
+
+    int start = 0;
+    while (start < mapped.length && mapped[start]["role"] == "model") {
+      start++;
+    }
+    final trimmed = mapped.sublist(start);
+
+    final List<Map<String, dynamic>> merged = [];
+    for (final turn in trimmed) {
+      if (merged.isNotEmpty && merged.last["role"] == turn["role"]) {
+        final lastParts = List<Map<String, dynamic>>.from(merged.last["parts"]);
+        final updatedText = "${lastParts[0]["text"]}\n\n${(turn["parts"] as List)[0]["text"]}";
+        merged.last["parts"] = [{"text": updatedText}];
+      } else {
+        merged.add({
+          "role": turn["role"],
+          "parts": [{"text": (turn["parts"] as List)[0]["text"]}]
+        });
+      }
+    }
+    return merged;
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _loading) return;
@@ -86,13 +115,15 @@ class _AdvisorTabState extends State<AdvisorTab> {
         return "$qty\x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
       }).join("\n");
 
-      const apiKey = "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"; 
+      final systemPrompt = "You are a sports card advisor. User's portfolio:\n$cardsStr\nGive direct advice under 150 words.";
 
-      if (apiKey == "YOUR_OPENAI_API_KEY_HERE") {
+      final apiKey = AppConstants.geminiApiKey;
+
+      if (apiKey.isEmpty || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
         final errorMessages = List<Map<String, String>>.from(_messages);
         errorMessages.add({
           "role": "assistant",
-          "content": "Please configure your OpenAI API Key inside `lib/features/advisor/advisor_tab.dart` to test advisor responses."
+          "content": "Please configure your Gemini API Key inside `lib/core/constants/app_constants.dart` to test advisor responses."
         });
         setState(() {
           _messages = errorMessages;
@@ -101,26 +132,56 @@ class _AdvisorTabState extends State<AdvisorTab> {
         return;
       }
 
-      final res = await http.post(
-        Uri.parse("https://api.openai.com/v1/chat/completions"),
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer $apiKey",
-        },
-        body: jsonEncode({
-          "model": "gpt-4o-mini",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are a sports card advisor. User's portfolio:\n$cardsStr\nGive direct advice under 150 words."
-            },
-            ..._messages.map((m) => {"role": m["role"], "content": m["content"]})
-          ]
-        }),
-      );
+      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      String? reply;
+      dynamic lastError;
 
-      final data = jsonDecode(res.body);
-      final reply = data['choices'][0]['message']['content'] ?? "No response.";
+      for (final model in models) {
+        try {
+          final res = await http.post(
+            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
+            headers: {
+              "Content-Type": "application/json",
+              "X-goog-api-key": apiKey,
+            },
+            body: jsonEncode({
+              "systemInstruction": {
+                "parts": [{"text": systemPrompt}]
+              },
+              "contents": _buildGeminiContents(_messages),
+              "generationConfig": {
+                "maxOutputTokens": 2048,
+                "temperature": 0.7
+              }
+            }),
+          );
+
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            final candidates = data['candidates'] as List?;
+            if (candidates != null && candidates.isNotEmpty) {
+              final content = candidates[0]['content'];
+              if (content != null) {
+                final parts = content['parts'] as List?;
+                if (parts != null && parts.isNotEmpty) {
+                  reply = parts[0]['text'] as String?;
+                  if (reply != null && reply.trim().isNotEmpty) {
+                    break;
+                  }
+                }
+              }
+            }
+          } else {
+            lastError = "HTTP ${res.statusCode}: ${res.body}";
+          }
+        } catch (e) {
+          lastError = e;
+        }
+      }
+
+      if (reply == null) {
+        throw Exception(lastError ?? "Empty response from Gemini.");
+      }
 
       final finalMessages = List<Map<String, String>>.from(_messages);
       finalMessages.add({"role": "assistant", "content": reply});
