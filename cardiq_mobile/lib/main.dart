@@ -1,4 +1,4 @@
-import 'package:flutter/material';
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,10 +16,10 @@ import 'features/history/history_tab.dart';
 import 'features/watchlist/watchlist_tab.dart';
 import 'features/grading/grading_tab.dart';
 import 'features/advisor/advisor_tab.dart';
+import 'features/market/market_tab.dart';
+import 'features/profile/profile_screen.dart';
 
-
-
-
+import 'core/services/notification_service.dart';
 
 // # Run this inside the cardiq_mobile directory:
 // flutter run --dart-define-from-file=../cardiq/.env
@@ -32,11 +32,16 @@ void main() async {
   } catch (e) {
     debugPrint("Firebase init deferred or failed: $e");
   }
-  runApp(const CardIqApp());
+  
+  // Initialize notification service
+  await NotificationService.initialize();
+  await NotificationService.requestPermissions();
+  
+  runApp(const KartisApp());
 }
 
-class CardIqApp extends StatelessWidget {
-  const CardIqApp({super.key});
+class KartisApp extends StatelessWidget {
+  const KartisApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -125,9 +130,14 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Image.asset(
+                  'assets/images/logo.png',
+                  height: 48,
+                ),
+                const SizedBox(height: 12),
                 RichText(
                   text: const TextSpan(
-                    text: "Card",
+                    text: "Kart",
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w900,
@@ -136,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     children: [
                       TextSpan(
-                        text: "IQ",
+                        text: "is",
                         style: TextStyle(color: AppColors.gold),
                       ),
                     ],
@@ -183,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                   child: RichText(
                     text: TextSpan(
-                      text: _isSignUp ? "Already have an account? " : "New to CardIQ? ",
+                      text: _isSignUp ? "Already have an account? " : "New to Kartis? ",
                       style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
                       children: [
                         TextSpan(
@@ -230,35 +240,52 @@ class _MainScreenState extends State<MainScreen> {
             ? snapshot.data!.docs.map((doc) => CardModel.fromFirestore(doc)).toList()
             : <CardModel>[];
 
+        if (snapshot.hasData) {
+          NotificationService.evaluatePortfolioAndNotify(cards);
+        }
+
         final List<Widget> tabs = [
           PortfolioTab(uid: user.uid),
           HistoryTab(cards: cards),
           WatchlistTab(uid: user.uid),
           const GradingTab(),
           AdvisorTab(uid: user.uid),
+          const MarketTab(),
         ];
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text(AppConstants.appName),
-            actions: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                child: Center(
-                  child: Text(
-                    user.email ?? "",
-                    style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
-                  ),
+            title: Row(
+              children: [
+                Image.asset(
+                  'assets/images/logo.png',
+                  height: 24,
                 ),
+                const SizedBox(width: 8),
+                const Text(AppConstants.appName),
+              ],
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.person_outline, size: 22, color: AppColors.gold),
+                tooltip: "My Profile",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                  );
+                },
               ),
               IconButton(
                 icon: const Icon(Icons.logout, size: 20),
+                tooltip: "Sign Out",
                 onPressed: () => FirebaseAuth.instance.signOut(),
               ),
             ],
           ),
           body: tabs[_currentIndex],
           bottomNavigationBar: BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
             currentIndex: _currentIndex,
             onTap: (index) {
               setState(() {
@@ -271,6 +298,7 @@ class _MainScreenState extends State<MainScreen> {
               BottomNavigationBarItem(icon: Icon(Icons.star), label: 'Watchlist'),
               BottomNavigationBarItem(icon: Icon(Icons.calculate), label: 'Grading'),
               BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Advisor'),
+              BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Market'),
             ],
           ),
         );

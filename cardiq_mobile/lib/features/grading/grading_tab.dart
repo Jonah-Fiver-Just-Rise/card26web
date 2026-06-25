@@ -1,4 +1,4 @@
-import 'package:flutter/material';
+import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_card.dart';
 

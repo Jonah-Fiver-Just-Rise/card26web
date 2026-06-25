@@ -4,7 +4,8 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signOut
+  signOut,
+  updatePassword
 } from "firebase/auth";
 import {
   collection,
@@ -18,6 +19,7 @@ import {
   updateDoc
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import LogoImg from "./assets/Logo.png";
 
 // Simulated portfolio history (fallback if Firestore history tracking isn't set up yet)
 const HISTORY = [
@@ -39,11 +41,14 @@ const TABS = ["Portfolio", "History", "Watchlist", "Grading", "Advisor", "Market
 
 const fmt = (n) => {
   const num = Number(n);
-  if (isNaN(num) || num <= 0) return "$0";
-  if (num < 10) {
-    return `$${num.toFixed(2)}`;
+  if (isNaN(num)) return "$0";
+  if (num === 0) return "$0";
+  const abs = Math.abs(num);
+  const sign = num < 0 ? "-" : "";
+  if (abs < 10) {
+    return `${sign}$${abs.toFixed(2)}`;
   }
-  return `$${Math.round(num).toLocaleString("en-US")}`;
+  return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
 };
 const gainColor = (n) => (n >= 0 ? "#22c55e" : "#ef4444");
 const S = { // shared inline style tokens
@@ -126,7 +131,7 @@ const callChatGPT = async (messages, system) => {
     return "Please configure VITE_GEMINI_API_KEY in your .env file.";
   }
   
-  const models = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
   let lastError = null;
 
   // Gemini requires strict user/model alternation, starting with "user"
@@ -985,42 +990,42 @@ function HistoryTab({ cards }) {
       const norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
       return hours.map((h, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: h, value: Math.round(val) };
+        return { month: h, value: val };
       });
     } else if (timeFilter === "1W") {
       const days = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
       const norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
       return days.map((d, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: d, value: Math.round(val) };
+        return { month: d, value: val };
       });
     } else if (timeFilter === "1M") {
       const weeks = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
       const norm = [0.0, 0.22, 0.55, 0.78, 1.0];
       return weeks.map((w, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: w, value: Math.round(val) };
+        return { month: w, value: val };
       });
     } else if (timeFilter === "3Y") {
       const years = ["3y ago", "2y ago", "1y ago", "Today"];
       const norm = [0.0, 0.45, 0.78, 1.0];
       return years.map((y, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: y, value: Math.round(val) };
+        return { month: y, value: val };
       });
     } else if (timeFilter === "5Y") {
       const years = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
       const norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
       return years.map((y, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: y, value: Math.round(val) };
+        return { month: y, value: val };
       });
     } else { // 1Y
       const months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
       const norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
       const historyData = months.map((m, idx) => {
         const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: m, value: Math.round(val) };
+        return { month: m, value: val };
       });
       return [...historyData, { month: "Today", value: totalValue }];
     }
@@ -1086,7 +1091,7 @@ function HistoryTab({ cards }) {
           <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
             <XAxis dataKey="month" tick={{ fill: "#6b6b8a", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: "#6b6b8a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} />
+            <YAxis tick={{ fill: "#6b6b8a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => totalValue < 100 ? (totalValue < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`) : `$${(v / 1000).toFixed(1)}k`} />
             <Tooltip content={<ChartTooltip />} />
             <Line type="monotone" dataKey="value" stroke="#c9a84c" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: "#c9a84c", stroke: "#0a0a0f", strokeWidth: 2 }} />
           </LineChart>
@@ -1117,11 +1122,17 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
 
   const [tab, setTab] = useState("Portfolio");
   const [cards, setCards] = useState([]);
   const [chatMessages, setChatMessages] = useState([
-    { role: "assistant", content: "Hey! I'm your CardIQ financial advisor. I know your full portfolio — ask me anything about valuations, buy/sell signals, grading strategy, or market trends." },
+    { role: "assistant", content: "Hey! I'm your Kartis financial advisor. I know your full portfolio — ask me anything about valuations, buy/sell signals, grading strategy, or market trends." },
   ]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -1229,6 +1240,35 @@ export default function App() {
   };
 
   const handleLogout = () => signOut(auth);
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError("Password must be at least 6 characters long.");
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordError("");
+    setPasswordSuccess("");
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      setPasswordSuccess("Password updated successfully!");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      if (err.code === 'auth/requires-recent-login') {
+        setPasswordError("For security reasons, please sign out and sign back in to change your password.");
+      } else {
+        setPasswordError(err.message.replace("Firebase: ", ""));
+      }
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
 
   const saveChatHistory = async (messagesList) => {
     if (!user) return;
@@ -1626,7 +1666,7 @@ export default function App() {
   if (authLoading) {
     return (
       <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, color: S.text }}>
-        <div style={{ fontSize: 16, color: S.gold, fontWeight: 700 }}>CardIQ Loading...</div>
+        <div style={{ fontSize: 16, color: S.gold, fontWeight: 700 }}>Kartis Loading...</div>
       </div>
     );
   }
@@ -1635,8 +1675,9 @@ export default function App() {
     return (
       <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, fontFamily: "'Inter', sans-serif" }}>
         <div style={{ ...S.card, width: 380, padding: 30, background: "linear-gradient(145deg, #111118, #0a0a0f)", border: "1px solid #2a2a3e" }}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Card<span style={{ color: S.gold }}>IQ</span></span>
+          <div style={{ textAlign: "center", marginBottom: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <img src={LogoImg} alt="Kartis Logo" style={{ height: 42, marginBottom: 10 }} />
+            <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Kart<span style={{ color: S.gold }}>is</span></span>
             <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Sports Card Investment & AI Advisor</div>
           </div>
           <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1650,7 +1691,7 @@ export default function App() {
             </button>
           </form>
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: S.muted }}>
-            {isSignUp ? "Already have an account? " : "New to CardIQ? "}
+            {isSignUp ? "Already have an account? " : "New to Kartis? "}
             <span onClick={() => { setIsSignUp(!isSignUp); setAuthError(""); }} style={{ color: S.gold, cursor: "pointer", fontWeight: 600 }}>
               {isSignUp ? "Sign In" : "Sign Up"}
             </span>
@@ -1666,12 +1707,14 @@ export default function App() {
       {/* Header */}
       <div className="app-header">
         <div className="header-top">
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>CardIQ</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={LogoImg} alt="Kartis Logo" style={{ height: 26, width: "auto" }} />
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>Kartis</span>
             <span className="header-subtitle" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="header-email" style={{ fontSize: 12, color: S.muted }}>{user.email}</span>
+            <button onClick={() => setShowProfileModal(true)} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.gold, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Profile</button>
             <button onClick={handleLogout} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Sign Out</button>
           </div>
         </div>
@@ -2070,6 +2113,103 @@ export default function App() {
           }
         }
       `}</style>
+
+      {/* Profile Modal */}
+      {showProfileModal && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(10, 10, 15, 0.75)",
+          backdropFilter: "blur(8px)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 9999,
+          fontFamily: "'Inter', sans-serif"
+        }}>
+          <div style={{
+            ...S.card,
+            width: 400,
+            padding: 30,
+            background: "linear-gradient(145deg, #111118, #0a0a0f)",
+            border: "1px solid #2a2a3e"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: S.text }}>User Profile & Security</span>
+              <button onClick={() => {
+                setShowProfileModal(false);
+                setPasswordError("");
+                setPasswordSuccess("");
+                setNewPassword("");
+                setConfirmPassword("");
+              }} style={{ background: "none", border: "none", color: S.muted, cursor: "pointer", fontSize: 20 }}>✕</button>
+            </div>
+            
+            <div style={{ marginBottom: 20 }}>
+              <div style={S.label}>Email Address</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: S.text, background: "#0d0d18", border: "1px solid #1e1e2e", borderRadius: 8, padding: "10px 14px" }}>
+                {user.email}
+              </div>
+            </div>
+
+            <form onSubmit={handlePasswordChange}>
+              <div style={{ ...S.label, marginBottom: 8 }}>Change Password</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <input
+                  type="password"
+                  placeholder="New Password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  style={S.input}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm New Password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  style={S.input}
+                  required
+                />
+              </div>
+
+              {passwordError && (
+                <div style={{ fontSize: 13, color: "#ef4444", marginTop: 12, background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: 6, padding: "8px 12px" }}>
+                  {passwordError}
+                </div>
+              )}
+              {passwordSuccess && (
+                <div style={{ fontSize: 13, color: "#22c55e", marginTop: 12, background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.2)", borderRadius: 6, padding: "8px 12px" }}>
+                  {passwordSuccess}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={passwordLoading}
+                style={{
+                  background: S.gold,
+                  color: S.bg,
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "12px",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  width: "100%",
+                  marginTop: 18,
+                  opacity: passwordLoading ? 0.6 : 1
+                }}
+              >
+                {passwordLoading ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toast.visible && (

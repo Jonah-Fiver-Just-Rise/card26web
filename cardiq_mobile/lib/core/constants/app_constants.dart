@@ -1,5 +1,5 @@
 class AppConstants {
-  static const String appName = "CardIQ";
+  static const String appName = "Kartis";
   static const String appSubtitle = "Sports Card Advisor";
   static const String appVersion = "1.0.0";
   

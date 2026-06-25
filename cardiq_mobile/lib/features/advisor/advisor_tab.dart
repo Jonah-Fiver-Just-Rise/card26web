@@ -1,4 +1,4 @@
-import 'package:flutter/material';
+import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -19,7 +19,7 @@ class _AdvisorTabState extends State<AdvisorTab> {
   List<Map<String, String>> _messages = [
     {
       "role": "assistant",
-      "content": "Hey! I'm your CardIQ financial advisor. Ask me anything about valuations, buy/sell signals, grading strategy, or market trends."
+      "content": "Hey! I'm your Kartis financial advisor. Ask me anything about valuations, buy/sell signals, grading strategy, or market trends."
     }
   ];
   bool _loading = false;
@@ -112,7 +112,7 @@ class _AdvisorTabState extends State<AdvisorTab> {
       final cardsStr = snapshot.docs.map((doc) {
         final data = doc.data();
         final qty = data['quantity'] ?? 1;
-        return "$qty\x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
+        return "${qty}x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
       }).join("\n");
 
       final systemPrompt = "You are a sports card advisor. User's portfolio:\n$cardsStr\nGive direct advice under 150 words.";
@@ -132,7 +132,7 @@ class _AdvisorTabState extends State<AdvisorTab> {
         return;
       }
 
-      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
       String? reply;
       dynamic lastError;
 

@@ -1,4 +1,4 @@
-import 'package:flutter/material';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/watchlist_model.dart';
@@ -20,6 +20,14 @@ class _WatchlistTabState extends State<WatchlistTab> {
   final _targetController = TextEditingController();
   final _estController = TextEditingController();
   String _selectedSport = "Basketball";
+
+  String _formatCurrency(double amount) {
+    if (amount <= 0) return "\$0";
+    if (amount < 10.0) {
+      return "\$${amount.toStringAsFixed(2)}";
+    }
+    return "\$${amount.round().toString()}";
+  }
 
   void _showAddWatchlistSheet() {
     showModalBottomSheet(
@@ -144,7 +152,7 @@ class _WatchlistTabState extends State<WatchlistTab> {
             child: Column(
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
                       "WATCHLIST",
@@ -174,7 +182,7 @@ class _WatchlistTabState extends State<WatchlistTab> {
                             return GlassCard(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.between,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
                                     child: Column(
@@ -206,7 +214,7 @@ class _WatchlistTabState extends State<WatchlistTab> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          "Target: \$${item.targetBuy.toStringAsFixed(0)}",
+                                          "Target: ${_formatCurrency(item.targetBuy)}",
                                           style: const TextStyle(color: AppColors.gold, fontSize: 11),
                                         ),
                                       ],
@@ -217,7 +225,7 @@ class _WatchlistTabState extends State<WatchlistTab> {
                                       Column(
                                         crossAxisAlignment: CrossAxisAlignment.end,
                                         children: [
-                                          Text("\$${item.currentEst.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.extrabold, fontSize: 15)),
+                                          Text(_formatCurrency(item.currentEst), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
                                           Text(
                                             "${diff > 0 ? '+' : ''}${pct.toStringAsFixed(0)}% vs target",
                                             style: TextStyle(

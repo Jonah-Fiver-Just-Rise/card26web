@@ -1,4 +1,4 @@
-import 'package:flutter/material';
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/models/card_model.dart';
 import '../../widgets/glass_card.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/notification_service.dart';
 
 class PortfolioTab extends StatefulWidget {
   final String uid;
@@ -29,6 +30,16 @@ class _PortfolioTabState extends State<PortfolioTab> {
   bool _autoPricing = false;
   bool _searchingCatalog = false;
   List<dynamic> _searchResults = [];
+
+  String _formatCurrency(double amount) {
+    final absAmount = amount.abs();
+    final sign = amount < 0 ? "-" : "";
+    if (absAmount == 0.0) return "\$0";
+    if (absAmount < 10.0) {
+      return "$sign\$${absAmount.toStringAsFixed(2)}";
+    }
+    return "$sign\$${absAmount.round().toString()}";
+  }
 
   Future<void> _runCatalogSearch(StateSetter setModalState) async {
     final query = _searchController.text.trim();
@@ -166,7 +177,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
         throw Exception("Gemini API key is not configured.");
       }
 
-      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
       String? reply;
       dynamic lastError;
 
@@ -331,7 +342,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
         throw Exception("Gemini API key is not configured.");
       }
 
-      final models = ["gemini-2.0-flash", "gemini-1.5-flash-latest"];
+      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
       String? reply;
       dynamic lastError;
 
@@ -451,7 +462,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
                     if (_searchResults.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Container(
-                        maxHeight: 150,
+                        constraints: const BoxConstraints(maxHeight: 150),
                         decoration: BoxDecoration(
                           color: AppColors.inputBg,
                           border: Border.all(color: AppColors.borderInput),
@@ -462,10 +473,10 @@ class _PortfolioTabState extends State<PortfolioTab> {
                           itemCount: _searchResults.length,
                           itemBuilder: (context, idx) {
                             final item = _searchResults[idx];
-                            return ListTile(
-                              title: Text("${item['year']} ${item['player']} (${item['set']})"),
-                              subtitle: Text(item['sport']),
-                              trailing: Text("\$${item['estimatedPrice']}", style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
+                             return ListTile(
+                               title: Text("${item['year']} ${item['player']} (${item['set']})"),
+                               subtitle: Text(item['sport']),
+                               trailing: Text(_formatCurrency((item['estimatedPrice'] as num).toDouble()), style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.bold)),
                               onTap: () {
                                 setModalState(() {
                                   _playerController.text = item['player'];
@@ -627,7 +638,9 @@ class _PortfolioTabState extends State<PortfolioTab> {
                           children: [
                             const Text("Total Value", style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
                             const SizedBox(height: 4),
-                            Text("\$${totalValue.toStringAsFixed(0)}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text(_formatCurrency(totalValue), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text("${cards.length} cards", style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
                           ],
                         ),
                       ),
@@ -641,7 +654,9 @@ class _PortfolioTabState extends State<PortfolioTab> {
                           children: [
                             const Text("Invested", style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
                             const SizedBox(height: 4),
-                            Text("\$${totalCost.toStringAsFixed(0)}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text(_formatCurrency(totalCost), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            const Text("cost basis", style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
                           ],
                         ),
                       ),
@@ -656,9 +671,18 @@ class _PortfolioTabState extends State<PortfolioTab> {
                             const Text("Return", style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
                             const SizedBox(height: 4),
                             Text(
-                              "${totalReturn >= 0 ? '+' : ''}${returnPct.toStringAsFixed(1)}%",
+                              "${totalReturn >= 0 ? '+' : ''}${_formatCurrency(totalReturn)}",
                               style: TextStyle(
                                 fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: totalReturn >= 0 ? AppColors.gainGreen : AppColors.lossRed,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "${totalReturn >= 0 ? '+' : ''}${returnPct.toStringAsFixed(1)}%",
+                              style: TextStyle(
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: totalReturn >= 0 ? AppColors.gainGreen : AppColors.lossRed,
                               ),
@@ -671,7 +695,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
                 ),
                 const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
                       "COLLECTION",
@@ -685,73 +709,145 @@ class _PortfolioTabState extends State<PortfolioTab> {
                   ],
                 ),
                 Expanded(
-                  child: cards.isEmpty
-                      ? const Center(
-                          child: Text("Your portfolio is empty.", style: TextStyle(color: AppColors.textMuted)),
-                        )
-                      : ListView.separated(
-                          itemCount: cards.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            final card = cards[index];
-                            final qty = card.quantity;
-                            final cost = card.purchasePrice * qty;
-                            final val = card.currentValue * qty;
-                            final gain = val - cost;
-                            final pct = cost > 0 ? (gain / cost) * 100 : 0.0;
-                            return GlassCard(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.between,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          "${qty}x ${card.year} ${card.player}",
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          "${card.set} · ${card.grade} · ${card.sport}",
-                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.end,
+                  child: RefreshIndicator(
+                    color: AppColors.gold,
+                    backgroundColor: AppColors.cardBg,
+                    onRefresh: () async {
+                      NotificationService.clearNotifiedSession();
+                      await Future.delayed(const Duration(seconds: 1));
+                      NotificationService.evaluatePortfolioAndNotify(cards);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Portfolio refreshed. Peak-sell checks re-evaluated!"),
+                            duration: Duration(seconds: 2),
+                            backgroundColor: AppColors.cardBg,
+                          ),
+                        );
+                      }
+                    },
+                    child: cards.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: const [
+                              SizedBox(height: 100),
+                              Center(
+                                child: Text("Your portfolio is empty.", style: TextStyle(color: AppColors.textMuted)),
+                              ),
+                            ],
+                          )
+                        : ListView.separated(
+                            itemCount: cards.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final card = cards[index];
+                              final qty = card.quantity;
+                              final cost = card.purchasePrice * qty;
+                              final val = card.currentValue * qty;
+                              final gain = val - cost;
+                              final pct = cost > 0 ? (gain / cost) * 100 : 0.0;
+                              return GlassCard(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text("\$${val.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.extrabold, fontSize: 15)),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  "${qty}x ${card.year} ${card.player}",
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              if (pct >= 30.0) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.lossRed.withOpacity(0.15),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(color: AppColors.lossRed.withOpacity(0.3)),
+                                                  ),
+                                                  child: const Text(
+                                                    "SELL PEAK",
+                                                    style: TextStyle(
+                                                      color: AppColors.lossRed,
+                                                      fontSize: 8,
+                                                      fontWeight: FontWeight.bold,
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 3),
                                           Text(
-                                            "${gain >= 0 ? '+' : ''}${pct.toStringAsFixed(1)}%",
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                              color: gain >= 0 ? AppColors.gainGreen : AppColors.lossRed,
-                                            ),
+                                            "${card.set} · ${card.grade} · ${card.sport}",
+                                            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(width: 10),
-                                      IconButton(
-                                        icon: const Icon(Icons.close, size: 16, color: AppColors.textMuted),
-                                        onPressed: () async {
-                                          await FirebaseFirestore.instance
-                                              .doc('users/${widget.uid}/portfolios/${card.id}')
-                                              .delete();
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                    ),
+                                    Row(
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            Text(_formatCurrency(val), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                                            Text(
+                                              "${gain >= 0 ? '+' : ''}${_formatCurrency(gain)} (${pct.toStringAsFixed(1)}%)",
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: gain >= 0 ? AppColors.gainGreen : AppColors.lossRed,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(width: 8),
+                                        if (pct >= 30.0) ...[
+                                          IconButton(
+                                            icon: const Icon(Icons.notifications_active, color: AppColors.gold, size: 18),
+                                            tooltip: "Simulate peak sell alert",
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                            onPressed: () {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text("Triggering alert in 4 seconds. Go to your home screen now to test!"),
+                                                  duration: Duration(seconds: 3),
+                                                  backgroundColor: AppColors.cardBg,
+                                                ),
+                                              );
+                                              NotificationService.simulatePeakSellAlert(card, delaySeconds: 4);
+                                            },
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        IconButton(
+                                          icon: const Icon(Icons.close, size: 16, color: AppColors.textMuted),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () async {
+                                            await FirebaseFirestore.instance
+                                                .doc('users/${widget.uid}/portfolios/${card.id}')
+                                                .delete();
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
                 ),
               ],
             ),
