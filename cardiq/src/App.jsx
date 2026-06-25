@@ -1144,19 +1144,36 @@ export default function App() {
       setToast(prev => ({ ...prev, visible: false }));
     }, 4500);
   };
-  const [trendingMovements, setTrendingMovements] = useState([
-    { name: "Wembanyama RC 2023", query: "2023 Victor Wembanyama Prizm RC", price: 625.00, change: 14.2, trend: "up" },
-    { name: "Shohei Ohtani Chrome Auto", query: "2018 Shohei Ohtani Bowman Chrome Auto", price: 1420.00, change: 8.5, trend: "up" },
-    { name: "Patrick Mahomes Prizm", query: "2017 Patrick Mahomes Prizm RC", price: 2850.00, change: -2.4, trend: "down" },
-    { name: "Caitlin Clark RC", query: "2024 Caitlin Clark Topps Chrome RC", price: 310.00, change: 22.1, trend: "up" },
-    { name: "Luka Dončić Prizm PSA 10", query: "2018 Luka Dončić Prizm PSA 10", price: 780.00, change: 5.8, trend: "up" },
-    { name: "Connor McDavid Young Guns", query: "2015 Connor McDavid Upper Deck Young Guns", price: 1250.00, change: -1.8, trend: "down" }
-  ]);
+  const [trendingMovements, setTrendingMovements] = useState(() => {
+    const cached = localStorage.getItem("cardiq_trending_movements");
+    return cached ? JSON.parse(cached) : [
+      { id: "15cd493d-1dbe-4a04-ba3f-ee873b2fd91d", name: "Wembanyama RC 2023", query: "2023 Victor Wembanyama Prizm RC", price: 625.00, change: 14.2, trend: "up" },
+      { id: "9551abef-ed4b-4662-bcd3-181549e704b2", name: "Shohei Ohtani Chrome Auto", query: "2018 Shohei Ohtani Bowman Chrome Auto", price: 1420.00, change: 8.5, trend: "up" },
+      { id: "b2189857-ba5d-4552-9bef-592ed1da57c8", name: "Patrick Mahomes Prizm", query: "2017 Patrick Mahomes Prizm RC", price: 2850.00, change: -2.4, trend: "down" },
+      { id: "08271afe-a16d-444f-8366-a4230acce486", name: "Caitlin Clark RC", query: "2024 Caitlin Clark Topps Chrome RC", price: 310.00, change: 22.1, trend: "up" },
+      { id: "403a7398-4b20-43c0-8cdb-cd78cfc8c78a", name: "Luka Dončić Prizm PSA 10", query: "2018 Luka Dončić Prizm PSA 10", price: 780.00, change: 5.8, trend: "up" },
+      { id: "73a98f95-1970-4ef3-806c-3bc321882d2c", name: "Connor McDavid Young Guns", query: "2015 Connor McDavid Upper Deck Young Guns", price: 1250.00, change: -1.8, trend: "down" }
+    ];
+  });
   const [loadingTrendingPrices, setLoadingTrendingPrices] = useState(false);
+  const [trendingLastUpdated, setTrendingLastUpdated] = useState(() => {
+    return localStorage.getItem("cardiq_trending_last_updated") || "";
+  });
+
+  const getReadableLastUpdated = () => {
+    if (!trendingLastUpdated) return "";
+    const diffMs = new Date() - new Date(trendingLastUpdated);
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return new Date(trendingLastUpdated).toLocaleDateString();
+  };
 
   useEffect(() => {
     if (tab === "Market") {
-      fetchTrendingPrices();
+      fetchTrendingPrices(false);
     }
   }, [tab]);
 
@@ -1246,37 +1263,128 @@ export default function App() {
     }
   };
 
-  const fetchTrendingPrices = async () => {
+  const fetchTrendingPrices = async (force = false) => {
     if (loadingTrendingPrices) return;
+
+    // Cache check: if not forced, load from cache if less than 6 hours old
+    const cachedData = localStorage.getItem("cardiq_trending_movements");
+    const cachedTime = localStorage.getItem("cardiq_trending_last_updated");
+    if (!force && cachedData && cachedTime) {
+      const diffMs = new Date() - new Date(cachedTime);
+      const diffHours = diffMs / (1000 * 60 * 60);
+      if (diffHours < 6) { // Less than 6 hours old
+        setTrendingMovements(JSON.parse(cachedData));
+        return;
+      }
+    }
+
     setLoadingTrendingPrices(true);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
     try {
-      const updated = await Promise.all(
-        trendingMovements.map(async (item) => {
-          try {
-            const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(item.query)}`);
-            const searchResults = searchRes?.results || searchRes?.data;
-            if (searchRes && searchResults && searchResults.length > 0) {
-              const cardId = searchResults[0].id;
-              const newPrice = await fetchCardPrice(cardId);
-              if (newPrice > 0) {
-                const baseline = item.price;
-                const changePct = parseFloat((((newPrice - baseline) / baseline) * 100).toFixed(1));
-                return {
-                  ...item,
-                  price: newPrice,
-                  change: changePct === 0 ? item.change : changePct,
-                  trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : item.trend)
-                };
+      const cardIds = trendingMovements.map(item => item.id).filter(Boolean);
+      console.log(`[CardSight] Fetching bulk pricing for ${cardIds.length} cards`);
+      
+      const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
+        method: "POST",
+        body: JSON.stringify({
+          card_ids: cardIds,
+          period: "all",
+          listing_type: "both"
+        })
+      });
+
+      if (bulkRes === "__INVALID_KEY__" || bulkRes === "__QUOTA_EXCEEDED__") {
+        console.warn("Bulk pricing lookup failed due to authentication or quota limits.");
+        setLoadingTrendingPrices(false);
+        return;
+      }
+
+      const resultsMap = {};
+      if (bulkRes && Array.isArray(bulkRes.results)) {
+        bulkRes.results.forEach(r => {
+          resultsMap[r.card_id] = r;
+        });
+      }
+
+      const updated = [];
+      for (const item of trendingMovements) {
+        let currentItem = { ...item };
+        let finalPrice = 0;
+        
+        const result = resultsMap[item.id];
+        if (result && result.success && result.data) {
+          const pricingRes = result.data;
+          const rawSales = pricingRes.raw?.records || [];
+          const gradedSales = Array.isArray(pricingRes.graded) 
+            ? pricingRes.graded 
+            : (pricingRes.graded?.records || []);
+          const sales = [...rawSales, ...gradedSales];
+          let total = 0;
+          let count = 0;
+          sales.forEach(s => {
+            const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+            if (val !== undefined && val !== null) {
+              const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+              if (p > 0) {
+                total += p;
+                count++;
               }
             }
-          } catch (e) {
-            console.warn(`Failed to fetch live price for ${item.name}:`, e);
+          });
+          const avgPrice = count > 0 ? total / count : 0;
+          finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+        }
+
+        // If completed sales price is 0, attempt marketplace active listings lookup as fallback
+        if (finalPrice <= 0 && item.id) {
+          try {
+            console.log(`[CardSight] Fallback query to marketplace for ID: ${item.id}`);
+            const marketRes = await callCardSightAPI(`/v1/marketplace/${item.id}`);
+            if (marketRes && typeof marketRes === "object" && marketRes !== null) {
+              const records = marketRes.raw?.records || (Array.isArray(marketRes.raw) ? marketRes.raw : []);
+              let total = 0;
+              let count = 0;
+              records.forEach(r => {
+                const val = r.price !== undefined ? r.price : (r.price_usd !== undefined ? r.price_usd : r.value);
+                if (val !== undefined && val !== null) {
+                  const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+                  if (p > 0) {
+                    total += p;
+                    count++;
+                  }
+                }
+              });
+              if (count > 0) {
+                finalPrice = total / count;
+              }
+            }
+          } catch (err) {
+            console.warn(`Marketplace fallback failed for ID: ${item.id}`, err);
           }
-          return item;
-        })
-      );
+          // Brief throttle sleep to respect rate limit of fallback queries
+          await sleep(400);
+        }
+
+        if (finalPrice > 0) {
+          const baseline = item.price;
+          const changePct = parseFloat((((finalPrice - baseline) / baseline) * 100).toFixed(1));
+          currentItem = {
+            ...item,
+            price: finalPrice,
+            change: changePct === 0 ? item.change : changePct,
+            trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : item.trend)
+          };
+        }
+        updated.push(currentItem);
+      }
+
       setTrendingMovements(updated);
-      showToast("Trending market movements updated with live CardSight AI pricing.", "success");
+      const nowStr = new Date().toISOString();
+      setTrendingLastUpdated(nowStr);
+      localStorage.setItem("cardiq_trending_movements", JSON.stringify(updated));
+      localStorage.setItem("cardiq_trending_last_updated", nowStr);
+      showToast("Trending market movements updated with live CardSight AI bulk pricing.", "success");
     } catch (err) {
       console.error("Failed to load trending prices:", err);
     } finally {
@@ -1804,7 +1912,7 @@ export default function App() {
                 {marketLoading ? "…" : "Analyze"}
               </button>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
               {loadingTrendingPrices ? (
                 <span style={{ fontSize: 11, color: S.gold, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1812,9 +1920,16 @@ export default function App() {
                   Updating live prices...
                 </span>
               ) : (
-                <button onClick={fetchTrendingPrices} style={{ background: "transparent", border: "none", color: S.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
-                  Refresh Prices
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {trendingLastUpdated && (
+                    <span style={{ fontSize: 11, color: S.muted }}>
+                      Last updated: {getReadableLastUpdated()}
+                    </span>
+                  )}
+                  <button onClick={() => fetchTrendingPrices(true)} style={{ background: "transparent", border: "none", color: S.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
+                    Refresh Prices
+                  </button>
+                </div>
               )}
             </div>
 
