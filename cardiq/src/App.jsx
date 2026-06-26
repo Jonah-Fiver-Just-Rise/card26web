@@ -50,15 +50,52 @@ const fmt = (n) => {
   }
   return `${sign}$${Math.round(abs).toLocaleString("en-US")}`;
 };
-const gainColor = (n) => (n >= 0 ? "#22c55e" : "#ef4444");
+
+const detectSport = (name, releaseName, setName) => {
+  const text = `${name || ""} ${releaseName || ""} ${setName || ""}`.toLowerCase();
+  
+  // Specific players mapping first
+  if (/\bohtani\b|\bjudge\b|\btrout\b|\bacuna\b|\bsoto\b|\bharper\b|\bbetts\b|\bguerrero\b|\bpujols\b|\bripken\b|\bpiazza\b|\bortiz\b|\bmcgwire\b|\brodriguez\b|\bbaseball\b|\bmlb\b/i.test(text)) {
+    return "Baseball";
+  }
+  if (/\bwembanyama\b|\blebron\b|\bcurry\b|\bjordan\b|\bdoncic\b|\bclark\b|\btatum\b|\bkobe\b|\bshaq\b|\bbasketball\b|\bnba\b/i.test(text)) {
+    return "Basketball";
+  }
+  if (/\bmahomes\b|\bbrady\b|\bdart\b|\bburrow\b|\bjackson\b|\bstroud\b|\bpurdy\b|\ballen\b|\bhurts\b|\bcarter\b|\bskattebo\b|\bward\b|\bsanders\b|\bshough\b|\bmanning\b|\btarkenton\b|\bfootball\b|\bnfl\b/i.test(text)) {
+    return "Football";
+  }
+  if (/\bmcdavid\b|\bcrosby\b|\bbedard\b|\bovechkin\b|\bgretzky\b|\bhockey\b|\bnhl\b/i.test(text)) {
+    return "Hockey";
+  }
+  if (/\bmessi\b|\bronaldo\b|\bmbappe\b|\bhaaland\b|\bsoccer\b|\bfutbol\b|\bpremier league\b|\bchampions league\b|\bla liga\b/i.test(text)) {
+    return "Soccer";
+  }
+
+  // Broad keyword matching
+  if (text.includes("bowman") || text.includes("topps chrome") || text.includes("heritage") || text.includes("stadium club") || text.includes("allen & ginter")) {
+    return "Baseball";
+  }
+  if (text.includes("hoops") || text.includes("prizm basketball") || text.includes("court kings") || text.includes("nba hoops")) {
+    return "Basketball";
+  }
+  if (text.includes("prizm football") || text.includes("donruss") || text.includes("score") || text.includes("gridiron")) {
+    return "Football";
+  }
+  if (text.includes("young guns") || text.includes("upper deck") || text.includes("o-pee-chee")) {
+    return "Hockey";
+  }
+  
+  return "Basketball"; // Default fallback
+};
+const gainColor = (n) => (n >= 0 ? "#16a34a" : "#dc2626");
 const S = { // shared inline style tokens
-  card: { background: "#111118", border: "1px solid #1e1e2e", borderRadius: 10, padding: "16px 18px" },
-  label: { fontSize: 11, color: "#6b6b8a", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 },
-  input: { background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: "10px 14px", color: "#e8e4d9", fontSize: 14, outline: "none", width: "100%" },
-  gold: "#c9a84c",
-  bg: "#0a0a0f",
-  text: "#e8e4d9",
-  muted: "#6b6b8a",
+  card: { background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "16px 18px", boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05)" },
+  label: { fontSize: 11, color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 },
+  input: { background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: "10px 14px", color: "#0f172a", fontSize: 14, outline: "none", width: "100%" },
+  accent: "#1e3a8a", // slightly darker gold for better contrast on white backgrounds
+  bg: "#ffffff",
+  text: "#0f172a",
+  muted: "#64748b",
 };
 
 const renderMarkdown = (text) => {
@@ -83,7 +120,7 @@ const renderMarkdown = (text) => {
     const parts = cleanLine.split(/\*\*([^*]+)\*\*/g);
     const parsedElements = parts.map((part, partIdx) => {
       if (partIdx % 2 === 1) {
-        return <strong key={partIdx} style={{ color: S.gold, fontWeight: 700 }}>{part}</strong>;
+        return <strong key={partIdx} style={{ color: S.accent, fontWeight: 700 }}>{part}</strong>;
       }
       return part;
     });
@@ -91,7 +128,7 @@ const renderMarkdown = (text) => {
     if (isBullet) {
       return (
         <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
-          <span style={{ color: S.gold }}>•</span>
+          <span style={{ color: S.accent }}>•</span>
           <div>{parsedElements}</div>
         </div>
       );
@@ -100,7 +137,7 @@ const renderMarkdown = (text) => {
     if (isNumbered) {
       return (
         <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
-          <span style={{ color: S.gold, fontWeight: 700 }}>{line.match(/^\d+\./)?.[0] || ""}</span>
+          <span style={{ color: S.accent, fontWeight: 700 }}>{line.match(/^\d+\./)?.[0] || ""}</span>
           <div>{parsedElements}</div>
         </div>
       );
@@ -310,8 +347,8 @@ const fetchCardPrice = async (cardId) => {
 // ── Quota Exceeded Banner ──────────────────────────────────────────────────
 const QuotaBanner = () => (
   <div style={{
-    background: "#1a1200",
-    border: "1px solid #c9a84c",
+    background: "#fef3c7",
+    border: "1px solid #f59e0b",
     borderRadius: 8,
     padding: "12px 16px",
     marginTop: 8,
@@ -321,8 +358,8 @@ const QuotaBanner = () => (
   }}>
     <span style={{ fontSize: 18 }}>⏳</span>
     <div>
-      <span style={{ color: "#c9a84c", fontWeight: 700, fontSize: 13 }}>AI Quota Exceeded — </span>
-      <span style={{ color: "#a89060", fontSize: 13 }}>Your AI quota has been used up. Please try again after 24 hours.</span>
+      <span style={{ color: "#d97706", fontWeight: 700, fontSize: 13 }}>AI Quota Exceeded — </span>
+      <span style={{ color: "#b45309", fontSize: 13 }}>Your AI quota has been used up. Please try again after 24 hours.</span>
     </div>
   </div>
 );
@@ -330,8 +367,8 @@ const QuotaBanner = () => (
 // ── Invalid API Key Banner ──────────────────────────────────────────
 const InvalidKeyBanner = () => (
   <div style={{
-    background: "#1a0808",
-    border: "1px solid #ef4444",
+    background: "#fee2e2",
+    border: "1px solid #fca5a5",
     borderRadius: 8,
     padding: "12px 16px",
     marginTop: 8,
@@ -342,9 +379,9 @@ const InvalidKeyBanner = () => (
     <span style={{ fontSize: 18 }}>🔑</span>
     <div>
       <div style={{ color: "#ef4444", fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Invalid API Key (401 Unauthorized)</div>
-      <div style={{ color: "#c87070", fontSize: 12, lineHeight: 1.6 }}>
+      <div style={{ color: "#b91c1c", fontSize: 12, lineHeight: 1.6 }}>
         The Gemini API key is missing or invalid on this deployment.<br />
-        Go to <strong>Vercel → Project Settings → Environment Variables</strong> and add <code style={{ background: "#2a0a0a", padding: "1px 5px", borderRadius: 3 }}>VITE_GEMINI_API_KEY</code>, then redeploy.
+        Go to <strong>Vercel → Project Settings → Environment Variables</strong> and add <code style={{ background: "#fecaca", padding: "1px 5px", borderRadius: 3 }}>VITE_GEMINI_API_KEY</code>, then redeploy.
       </div>
     </div>
   </div>
@@ -354,9 +391,9 @@ const InvalidKeyBanner = () => (
 const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#1a1a28", border: "1px solid #2a2a3e", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>
+    <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 14px", fontSize: 13, boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)" }}>
       <div style={{ color: S.muted, marginBottom: 2 }}>{label}</div>
-      <div style={{ color: S.gold, fontWeight: 700 }}>{fmt(payload[0].value)}</div>
+      <div style={{ color: S.accent, fontWeight: 700 }}>{fmt(payload[0].value)}</div>
     </div>
   );
 };
@@ -425,13 +462,15 @@ function GradingTab() {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 3).map(async (item) => {
+        const mappedPromises = results.slice(0, 5).map(async (item) => {
           const price = await fetchCardPrice(item.id);
+          const detected = detectSport(item.name, item.releaseName, item.setName);
+          const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
             player: item.name || item.player || "",
             year: parseInt(item.year) || new Date().getFullYear(),
-            set: item.setName || item.set || "",
-            sport: item.sport || item.segment || "Basketball",
+            set: setDesc,
+            sport: detected,
             rawValue: price,
             psa10Value: price * 1.5 || 15,
             psa9Value: price * 1.1 || 8
@@ -497,27 +536,27 @@ function GradingTab() {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
         <span style={{ fontSize: 12, color: S.muted, fontWeight: 600 }}>Try Examples:</span>
         {EXAMPLES.map((ex) => (
-          <button key={ex.label} onClick={() => loadExample(ex)} style={{ background: "#111118", border: "1px solid #2a2a3e", borderRadius: 20, padding: "5px 12px", fontSize: 12, color: S.gold, cursor: "pointer", transition: "border 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.borderColor = S.gold} onMouseLeave={(e) => e.currentTarget.style.borderColor = '#2a2a3e'}>
+          <button key={ex.label} onClick={() => loadExample(ex)} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 20, padding: "5px 12px", fontSize: 12, color: S.accent, cursor: "pointer", transition: "all 0.2s" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = S.accent; e.currentTarget.style.background = "#e2e8f0"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = "#f1f5f9"; }}>
             {ex.label}
           </button>
         ))}
       </div>
 
       {/* AI Catalog Search for Grading values */}
-      <div style={{ ...S.card, borderColor: "#2a2a3e", marginBottom: 20, background: "linear-gradient(145deg, #111118, #0d0d12)" }}>
+      <div style={{ ...S.card, borderColor: "#cbd5e1", marginBottom: 20, background: "linear-gradient(145deg, #ffffff, #f8fafc)" }}>
         <div style={S.label}>Search Card Database for Price Comps</div>
         <div style={{ display: "flex", gap: 10 }}>
           <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2023 Wembanyama Prizm" style={S.input} />
-          <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+          <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
             {searchCatalogLoading ? "Searching..." : "Search"}
           </button>
         </div>
         {searchCatalogLoading && (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 12 }}>
             {[1, 2, 3].map((i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
-                <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
-                <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#f1f5f9", animation: "pulse 1.5s infinite ease-in-out" }}>
+                <div style={{ height: 14, width: "60%", background: "#cbd5e1", borderRadius: 4 }} />
+                <div style={{ height: 14, width: "15%", background: S.accent, opacity: 0.3, borderRadius: 4 }} />
               </div>
             ))}
           </div>
@@ -530,7 +569,7 @@ function GradingTab() {
               : <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>{searchError}</div>
         )}
         {!searchCatalogLoading && searchResults.length > 0 && (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
             {searchResults.map((item, idx) => (
               <div key={idx} onClick={() => {
                 setForm({
@@ -543,9 +582,9 @@ function GradingTab() {
                 });
                 setSearchResults([]);
                 setSearchQuery("");
-              }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+              }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - Raw: {fmt(item.rawValue)} · PSA 10: {fmt(item.psa10Value)}</span>
-                <span style={{ color: S.gold, fontWeight: 700, fontSize: 12 }}>Select</span>
+                <span style={{ color: S.accent, fontWeight: 700, fontSize: 12 }}>Select</span>
               </div>
             ))}
           </div>
@@ -599,7 +638,7 @@ function GradingTab() {
         </div>
       )}
 
-      <button onClick={getAIAnalysis} disabled={loading || !form.player} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 8, padding: "11px 22px", fontWeight: 800, fontSize: 14, cursor: "pointer", opacity: loading || !form.player ? 0.5 : 1, marginBottom: 16 }}>
+      <button onClick={getAIAnalysis} disabled={loading || !form.player} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 8, padding: "11px 22px", fontWeight: 800, fontSize: 14, cursor: "pointer", opacity: loading || !form.player ? 0.5 : 1, marginBottom: 16 }}>
         {loading ? "Analyzing…" : "Get AI Grading Advice"}
       </button>
 
@@ -609,9 +648,9 @@ function GradingTab() {
           : aiAnalysis === INVALID_KEY
             ? <InvalidKeyBanner />
             : (
-              <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-                <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>AI Grading Advisor</div>
-                <div style={{ fontSize: 14, lineHeight: 1.75, color: "#c8c4b8" }}>{renderMarkdown(aiAnalysis)}</div>
+              <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
+                <div style={{ ...S.label, color: S.accent, marginBottom: 10 }}>AI Grading Advisor</div>
+                <div style={{ fontSize: 14, lineHeight: 1.75, color: "#475569" }}>{renderMarkdown(aiAnalysis)}</div>
               </div>
             )
       )}
@@ -663,13 +702,15 @@ function WatchlistTab({ user }) {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 3).map(async (item) => {
+        const mappedPromises = results.slice(0, 5).map(async (item) => {
           const price = await fetchCardPrice(item.id);
+          const detected = detectSport(item.name, item.releaseName, item.setName);
+          const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
             player: item.name || item.player || "",
             year: parseInt(item.year) || new Date().getFullYear(),
-            set: item.setName || item.set || "",
-            sport: item.sport || item.segment || "Basketball",
+            set: setDesc,
+            sport: detected,
             estimatedPrice: price
           };
         });
@@ -833,25 +874,25 @@ function WatchlistTab({ user }) {
             resetForm();
           }
           setShowAdd(!showAdd);
-        }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
+        }} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
       </div>
 
       {showAdd && (
-        <div style={{ ...S.card, borderColor: "#c9a84c33", marginBottom: 14 }}>
-          <div style={{ borderBottom: "1px solid #1e1e2e", paddingBottom: 14, marginBottom: 14 }}>
+        <div style={{ ...S.card, borderColor: "#1e3a8a33", marginBottom: 14 }}>
+          <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 14, marginBottom: 14 }}>
             <div style={S.label}>Search Card Catalog</div>
             <div style={{ display: "flex", gap: 10 }}>
               <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
-              <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+              <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
                 {searchCatalogLoading ? "Searching..." : "Search"}
               </button>
             </div>
             {searchCatalogLoading && (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 12 }}>
                 {[1, 2, 3].map((i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
-                    <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
-                    <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#f1f5f9", animation: "pulse 1.5s infinite ease-in-out" }}>
+                    <div style={{ height: 14, width: "60%", background: "#cbd5e1", borderRadius: 4 }} />
+                    <div style={{ height: 14, width: "15%", background: S.accent, opacity: 0.3, borderRadius: 4 }} />
                   </div>
                 ))}
               </div>
@@ -868,7 +909,7 @@ function WatchlistTab({ user }) {
                   )
             )}
             {!searchCatalogLoading && searchResults.length > 0 && (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
                 {searchResults.map((item, idx) => (
                   <div key={idx} onClick={() => {
                     setNewItem({
@@ -881,9 +922,9 @@ function WatchlistTab({ user }) {
                       currentEst: item.estimatedPrice
                     });
                     setSearchResults([]);
-                  }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                  }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                     <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
-                    <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
+                    <span style={{ color: S.accent, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
                   </div>
                 ))}
               </div>
@@ -902,8 +943,8 @@ function WatchlistTab({ user }) {
             </select>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={addItem} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Add to Watchlist</button>
-            <button onClick={() => { resetForm(); setShowAdd(false); }} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button onClick={addItem} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Add to Watchlist</button>
+            <button onClick={() => { resetForm(); setShowAdd(false); }} style={{ background: "none", color: S.muted, border: "1px solid #cbd5e1", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
           </div>
         </div>
       )}
@@ -921,7 +962,7 @@ function WatchlistTab({ user }) {
                   {atTarget && <span style={{ fontSize: 10, fontWeight: 700, background: "#22c55e22", color: "#22c55e", borderRadius: 4, padding: "2px 7px", letterSpacing: "0.06em" }}>BUY ZONE</span>}
                 </div>
                 <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{item.set} · {item.grade} · {item.sport}</div>
-                <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Target: <span style={{ color: S.gold }}>{fmt(item.targetBuy)}</span></div>
+                <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Target: <span style={{ color: S.accent }}>{fmt(item.targetBuy)}</span></div>
               </div>
               <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 16 }}>
                 <div>
@@ -934,30 +975,30 @@ function WatchlistTab({ user }) {
           );
         })}
         {items.length === 0 && (
-          <div style={{ border: "1px dashed #2a2a3e", borderRadius: 10, padding: 32, textAlign: "center", color: "#3a3a5e", fontSize: 13 }}>No cards on watchlist yet.</div>
+          <div style={{ border: "1px dashed #cbd5e1", borderRadius: 10, padding: 32, textAlign: "center", color: "#64748b", fontSize: 13 }}>No cards on watchlist yet.</div>
         )}
       </div>
 
       {/* eBay Price Lookup */}
-      <div style={{ borderTop: "1px solid #1e1e2e", paddingTop: 24 }}>
+      <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24 }}>
         <div style={{ ...S.label, marginBottom: 4 }}>eBay Price Lookup</div>
         <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>Get AI-estimated recent sold prices based on market data.</div>
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           <input value={ebayQuery} onChange={(e) => setEbayQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && fetchEbayPrices()} placeholder="e.g. 2021 Panini Prizm Josh Allen PSA 10" style={{ ...S.input }} />
-          <button onClick={fetchEbayPrices} disabled={ebayLoading} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: ebayLoading ? 0.5 : 1 }}>
+          <button onClick={fetchEbayPrices} disabled={ebayLoading} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: ebayLoading ? 0.5 : 1 }}>
             {ebayLoading ? "…" : "Look Up"}
           </button>
         </div>
         {ebayLoading && (
-          <div style={{ ...S.card, borderColor: "#c9a84c55", background: "linear-gradient(145deg, #12121e, #0c0c14)", padding: 20 }}>
+          <div style={{ ...S.card, borderColor: "#1e3a8a55", background: "linear-gradient(145deg, #ffffff, #f8fafc)", padding: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: S.gold, animation: "pulse 1.2s infinite" }} />
-              <div style={{ ...S.label, color: S.gold, marginBottom: 0 }}>Querying Live Comps...</div>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: S.accent, animation: "pulse 1.2s infinite" }} />
+              <div style={{ ...S.label, color: S.accent, marginBottom: 0 }}>Querying Live Comps...</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ height: 12, width: "85%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
-              <div style={{ height: 12, width: "70%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.2s" }} />
-              <div style={{ height: 12, width: "90%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.4s" }} />
+              <div style={{ height: 12, width: "85%", background: "#cbd5e1", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
+              <div style={{ height: 12, width: "70%", background: "#cbd5e1", borderRadius: 4, animation: "pulse 1.5s infinite 0.2s" }} />
+              <div style={{ height: 12, width: "90%", background: "#cbd5e1", borderRadius: 4, animation: "pulse 1.5s infinite 0.4s" }} />
             </div>
           </div>
         )}
@@ -967,9 +1008,9 @@ function WatchlistTab({ user }) {
             : ebayResult === INVALID_KEY
               ? <InvalidKeyBanner />
               : (
-                <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-                  <div style={{ ...S.label, color: S.gold, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(ebayResult)}</div>
+                <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
+                  <div style={{ ...S.label, color: S.accent, marginBottom: 10 }}>Recent Sales: {ebayQuery}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.8, color: "#475569" }}>{renderMarkdown(ebayResult)}</div>
                 </div>
               )
         )}
@@ -1072,8 +1113,8 @@ function HistoryTab({ cards }) {
           <div style={{ display: "flex", gap: 6 }}>
             {["1D", "1W", "1M", "1Y", "3Y", "5Y"].map((f) => (
               <button key={f} onClick={() => setTimeFilter(f)} style={{
-                background: timeFilter === f ? S.gold : "#1a1a28",
-                color: timeFilter === f ? S.bg : S.muted,
+                background: timeFilter === f ? S.accent : "#f1f5f9",
+                color: timeFilter === f ? "#ffffff" : S.muted,
                 border: "none",
                 borderRadius: 12,
                 padding: "4px 12px",
@@ -1089,11 +1130,11 @@ function HistoryTab({ cards }) {
         </div>
         <ResponsiveContainer width="100%" height={240}>
           <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-            <XAxis dataKey="month" tick={{ fill: "#6b6b8a", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: "#6b6b8a", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => totalValue < 100 ? (totalValue < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`) : `$${(v / 1000).toFixed(1)}k`} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => totalValue < 100 ? (totalValue < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`) : `$${(v / 1000).toFixed(1)}k`} />
             <Tooltip content={<ChartTooltip />} />
-            <Line type="monotone" dataKey="value" stroke="#c9a84c" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: "#c9a84c", stroke: "#0a0a0f", strokeWidth: 2 }} />
+            <Line type="monotone" dataKey="value" stroke="#1e3a8a" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: "#1e3a8a", stroke: "#ffffff", strokeWidth: 2 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -1101,12 +1142,12 @@ function HistoryTab({ cards }) {
       <div className="grid-2">
         <div style={S.card}>
           <div style={{ ...S.label, marginBottom: 8 }}>Peak Value</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#22c55e" }}>{fmt(best.value)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#16a34a" }}>{fmt(best.value)}</div>
           <div style={{ fontSize: 12, color: S.muted }}>{best.month}</div>
         </div>
         <div style={S.card}>
           <div style={{ ...S.label, marginBottom: 8 }}>Monthly Low</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#ef4444" }}>{fmt(worst.value)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#dc2626" }}>{fmt(worst.value)}</div>
           <div style={{ fontSize: 12, color: S.muted }}>{worst.month}</div>
         </div>
       </div>
@@ -1577,13 +1618,15 @@ export default function App() {
       }
       const results = apiRes?.results || apiRes?.data;
       if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 3).map(async (item) => {
+        const mappedPromises = results.slice(0, 5).map(async (item) => {
           const price = await fetchCardPrice(item.id);
+          const detected = detectSport(item.name, item.releaseName, item.setName);
+          const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
             player: item.name || item.player || "",
             year: parseInt(item.year) || new Date().getFullYear(),
-            set: item.setName || item.set || "",
-            sport: item.sport || item.segment || "Basketball",
+            set: setDesc,
+            sport: detected,
             estimatedPrice: price
           };
         });
@@ -1666,7 +1709,7 @@ export default function App() {
   if (authLoading) {
     return (
       <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, color: S.text }}>
-        <div style={{ fontSize: 16, color: S.gold, fontWeight: 700 }}>Kartis Loading...</div>
+        <div style={{ fontSize: 16, color: S.accent, fontWeight: 700 }}>Kartis Loading...</div>
       </div>
     );
   }
@@ -1674,10 +1717,10 @@ export default function App() {
   if (!user) {
     return (
       <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, fontFamily: "'Inter', sans-serif" }}>
-        <div style={{ ...S.card, width: 380, padding: 30, background: "linear-gradient(145deg, #111118, #0a0a0f)", border: "1px solid #2a2a3e" }}>
+        <div style={{ ...S.card, width: 380, padding: 30, background: "linear-gradient(145deg, #ffffff, #f8fafc)", border: "1px solid #cbd5e1" }}>
           <div style={{ textAlign: "center", marginBottom: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
             <img src={LogoImg} alt="Kartis Logo" style={{ height: 42, marginBottom: 10 }} />
-            <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Kart<span style={{ color: S.gold }}>is</span></span>
+            <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Kart<span style={{ color: S.accent }}>is</span></span>
             <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Sports Card Investment & AI Advisor</div>
           </div>
           <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1686,13 +1729,13 @@ export default function App() {
             
             {authError && <div style={{ fontSize: 13, color: "#ef4444", textAlign: "center" }}>{authError}</div>}
             
-            <button type="submit" style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", transition: "opacity 0.2s" }}>
+            <button type="submit" style={{ background: S.accent, color: "#ffffff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", transition: "opacity 0.2s" }}>
               {isSignUp ? "Create Account" : "Sign In"}
             </button>
           </form>
           <div style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: S.muted }}>
             {isSignUp ? "Already have an account? " : "New to Kartis? "}
-            <span onClick={() => { setIsSignUp(!isSignUp); setAuthError(""); }} style={{ color: S.gold, cursor: "pointer", fontWeight: 600 }}>
+            <span onClick={() => { setIsSignUp(!isSignUp); setAuthError(""); }} style={{ color: S.accent, cursor: "pointer", fontWeight: 600 }}>
               {isSignUp ? "Sign In" : "Sign Up"}
             </span>
           </div>
@@ -1707,19 +1750,19 @@ export default function App() {
       {/* Header */}
       <div className="app-header">
         <div className="header-top">
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>Kartis</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <img src={LogoImg} alt="Kartis" style={{ height: 48, width: "auto", display: "block" }} />
             <span className="header-subtitle" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="header-email" style={{ fontSize: 12, color: S.muted }}>{user.email}</span>
-            <button onClick={() => setShowProfileModal(true)} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.gold, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Profile</button>
-            <button onClick={handleLogout} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Sign Out</button>
+            <button onClick={() => setShowProfileModal(true)} style={{ background: "none", border: "1px solid #cbd5e1", borderRadius: 6, color: S.accent, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Profile</button>
+            <button onClick={handleLogout} style={{ background: "none", border: "1px solid #cbd5e1", borderRadius: 6, color: S.text, padding: "4px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Sign Out</button>
           </div>
         </div>
         <div style={{ display: "flex", gap: 0, marginTop: 14, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: tab === t ? `2px solid ${S.gold}` : "2px solid transparent", color: tab === t ? S.gold : S.muted, fontWeight: tab === t ? 700 : 400, fontSize: 13, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", letterSpacing: "0.02em" }}>
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 14px", background: "none", border: "none", borderBottom: tab === t ? `2px solid ${S.accent}` : "2px solid transparent", color: tab === t ? S.accent : S.muted, fontWeight: tab === t ? 700 : 400, fontSize: 13, cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", letterSpacing: "0.02em" }}>
               {t}
             </button>
           ))}
@@ -1747,31 +1790,31 @@ export default function App() {
 
             {/* Firebase error banner */}
             {firebaseError && (
-              <div style={{ background: "#1a0808", border: "1px solid #ef4444", borderRadius: 8, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 8, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <div style={{ fontSize: 16 }}>❌</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: "#ef4444", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Firebase Error</div>
-                  <div style={{ color: "#c87070", fontSize: 12, lineHeight: 1.6 }}>{firebaseError}</div>
+                  <div style={{ color: "#b91c1c", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Firebase Error</div>
+                  <div style={{ color: "#991b1b", fontSize: 12, lineHeight: 1.6 }}>{firebaseError}</div>
                   <div style={{ marginTop: 8 }}>
-                    <a href="https://console.firebase.google.com/project/cardiq-f2cbb/firestore/rules" target="_blank" rel="noreferrer" style={{ color: S.gold, fontSize: 12, fontWeight: 700 }}>Fix Firestore Rules →</a>
+                    <a href="https://console.firebase.google.com/project/cardiq-f2cbb/firestore/rules" target="_blank" rel="noreferrer" style={{ color: S.accent, fontSize: 12, fontWeight: 700 }}>Fix Firestore Rules →</a>
                   </div>
                 </div>
-                <button onClick={() => setFirebaseError("")} style={{ background: "none", border: "none", color: "#6b6b8a", cursor: "pointer", fontSize: 16 }}>×</button>
+                <button onClick={() => setFirebaseError("")} style={{ background: "none", border: "none", color: "#b91c1c", cursor: "pointer", fontSize: 16 }}>×</button>
               </div>
             )}
 
             {/* Save success toast */}
             {saveSuccess && (
-              <div style={{ background: "#081a0f", border: "1px solid #22c55e", borderRadius: 8, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ background: "#dcfce7", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 16 }}>✅</span>
-                <span style={{ color: "#22c55e", fontSize: 13, fontWeight: 700 }}>Card saved to your portfolio!</span>
+                <span style={{ color: "#166534", fontSize: 13, fontWeight: 700 }}>Card saved to your portfolio!</span>
               </div>
             )}
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ ...S.label, marginBottom: 0 }}>Collection</span>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={syncPortfolioPrices} disabled={syncingPrices} style={{ background: "none", border: `1px solid ${S.gold}`, color: S.gold, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: syncingPrices ? 0.5 : 1 }}>
+                <button onClick={syncPortfolioPrices} disabled={syncingPrices} style={{ background: "none", border: `1px solid ${S.accent}`, color: S.accent, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: syncingPrices ? 0.5 : 1 }}>
                   {syncingPrices ? "Syncing..." : "🔄 Sync Live Prices"}
                 </button>
                 <button onClick={() => {
@@ -1782,26 +1825,26 @@ export default function App() {
                     setSearchError("");
                   }
                   setShowAddCard(!showAddCard);
-                }} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
+                }} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Card</button>
               </div>
             </div>
 
             {showAddCard && (
-              <div style={{ ...S.card, borderColor: "#c9a84c33", marginBottom: 14 }}>
-                <div style={{ borderBottom: "1px solid #1e1e2e", paddingBottom: 14, marginBottom: 14 }}>
+              <div style={{ ...S.card, borderColor: "#1e3a8a33", marginBottom: 14 }}>
+                <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 14, marginBottom: 14 }}>
                   <div style={S.label}>Search Card Catalog</div>
                   <div style={{ display: "flex", gap: 10 }}>
                     <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
-                    <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+                    <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
                       {searchCatalogLoading ? "Searching..." : "Search"}
                     </button>
                   </div>
                   {searchCatalogLoading && (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 12 }}>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 12 }}>
                       {[1, 2, 3].map((i) => (
-                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#161622", animation: "pulse 1.5s infinite ease-in-out" }}>
-                          <div style={{ height: 14, width: "60%", background: "#2a2a3e", borderRadius: 4 }} />
-                          <div style={{ height: 14, width: "15%", background: S.gold, opacity: 0.3, borderRadius: 4 }} />
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "#f1f5f9", animation: "pulse 1.5s infinite ease-in-out" }}>
+                          <div style={{ height: 14, width: "60%", background: "#cbd5e1", borderRadius: 4 }} />
+                          <div style={{ height: 14, width: "15%", background: S.accent, opacity: 0.3, borderRadius: 4 }} />
                         </div>
                       ))}
                     </div>
@@ -1818,7 +1861,7 @@ export default function App() {
                         )
                   )}
                   {!searchCatalogLoading && searchResults.length > 0 && (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#0d0d18", border: "1px solid #2a2a3e", borderRadius: 8, padding: 8 }}>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
                       {searchResults.map((item, idx) => (
                         <div key={idx} onClick={() => {
                           setNewCard({
@@ -1832,9 +1875,9 @@ export default function App() {
                             quantity: "1"
                           });
                           setSearchResults([]);
-                        }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #1e1e2e", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1a1a28'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
+                        }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
                           <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
-                          <span style={{ color: S.gold, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
+                          <span style={{ color: S.accent, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
                         </div>
                       ))}
                     </div>
@@ -1854,8 +1897,8 @@ export default function App() {
                   </select>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <button onClick={addCard} style={{ background: S.gold, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Save</button>
-                  <button onClick={runAutoPricing} disabled={autoPricingLoading} style={{ background: "none", border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, color: S.gold, cursor: "pointer" }}>
+                  <button onClick={addCard} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                  <button onClick={runAutoPricing} disabled={autoPricingLoading} style={{ background: "none", border: "1px solid #cbd5e1", borderRadius: 6, padding: "8px 18px", fontSize: 13, color: S.accent, cursor: "pointer" }}>
                     {autoPricingLoading ? "Loading Price..." : "AI Auto-Price Estimation"}
                   </button>
                   <button onClick={() => {
@@ -1864,7 +1907,7 @@ export default function App() {
                     setSearchResults([]);
                     setSearchError("");
                     setShowAddCard(false);
-                  }} style={{ background: "none", color: S.muted, border: "1px solid #2a2a3e", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  }} style={{ background: "none", color: S.muted, border: "1px solid #cbd5e1", borderRadius: 6, padding: "8px 18px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
             )}
@@ -1911,13 +1954,13 @@ export default function App() {
             <div style={{ ...S.label, marginBottom: 10 }}>AI Advisor · Knows your full portfolio</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
               {["Should I sell anything?", "What's my best performer?", "What should I add?", "Is grading any of my cards worth it?", "Biggest risks in my portfolio?"].map((p) => (
-                <button key={p} onClick={() => setChatInput(p)} style={{ background: "#111118", border: "1px solid #2a2a3e", borderRadius: 20, padding: "6px 13px", fontSize: 12, color: "#9b9bba", cursor: "pointer" }}>{p}</button>
+                <button key={p} onClick={() => setChatInput(p)} style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 20, padding: "6px 13px", fontSize: 12, color: S.muted, cursor: "pointer" }}>{p}</button>
               ))}
             </div>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14, paddingBottom: 16 }}>
               {chatMessages.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                  <div style={{ maxWidth: "80%", background: m.role === "user" ? S.gold : "#111118", border: m.role === "assistant" ? "1px solid #1e1e2e" : "none", borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "12px 16px", fontSize: 14, lineHeight: 1.65, color: m.role === "user" ? S.bg : S.text, fontWeight: m.role === "user" ? 600 : 400 }}>
+                  <div style={{ maxWidth: "80%", background: m.role === "user" ? S.accent : "#f1f5f9", border: m.role === "assistant" ? "1px solid #e2e8f0" : "none", borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px", padding: "12px 16px", fontSize: 14, lineHeight: 1.65, color: m.role === "user" ? "#ffffff" : S.text, fontWeight: m.role === "user" ? 600 : 400 }}>
                     {m.role === "user"
                       ? m.content
                       : m.content === QUOTA_EXCEEDED
@@ -1931,14 +1974,14 @@ export default function App() {
               ))}
               {chatLoading && (
                 <div style={{ display: "flex", gap: 5, paddingLeft: 4 }}>
-                  {[0, 1, 2].map((i) => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: S.gold, opacity: 0.4, animation: `pulse 1.2s ${i * 0.2}s infinite` }} />)}
+                  {[0, 1, 2].map((i) => <div key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: S.accent, opacity: 0.4, animation: `pulse 1.2s ${i * 0.2}s infinite` }} />)}
                 </div>
               )}
               <div ref={chatEndRef} />
             </div>
-            <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: "1px solid #1e1e2e" }}>
+            <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
               <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} placeholder="Ask about any card, player, trend…" style={{ ...S.input }} />
-              <button onClick={sendChat} disabled={chatLoading} style={{ background: S.gold, border: "none", borderRadius: 10, padding: "12px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", opacity: chatLoading ? 0.5 : 1 }}>→</button>
+              <button onClick={sendChat} disabled={chatLoading} style={{ background: S.accent, border: "none", borderRadius: 10, padding: "12px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", opacity: chatLoading ? 0.5 : 1 }}>→</button>
             </div>
           </div>
         )}
@@ -1950,15 +1993,15 @@ export default function App() {
             <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Enter any player, card, or set for a buy/hold/sell analysis.</div>
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <input value={marketQuery} onChange={(e) => setMarketQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMarketAnalysis()} placeholder="e.g. 2018 Luka Dončić Prizm PSA 10" style={{ ...S.input }} />
-              <button onClick={runMarketAnalysis} disabled={marketLoading} style={{ background: S.gold, border: "none", borderRadius: 8, padding: "10px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketLoading ? 0.5 : 1 }}>
+              <button onClick={runMarketAnalysis} disabled={marketLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "10px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketLoading ? 0.5 : 1 }}>
                 {marketLoading ? "…" : "Analyze"}
               </button>
             </div>
              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
               {loadingTrendingPrices ? (
-                <span style={{ fontSize: 11, color: S.gold, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span className="spinner" style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #c9a84c", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                <span style={{ fontSize: 11, color: S.accent, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="spinner" style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #1e3a8a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                   Updating live prices...
                 </span>
               ) : (
@@ -1983,8 +2026,8 @@ export default function App() {
                     key={item.name}
                     onClick={() => handleTrendingClick(item)}
                     style={{
-                      background: "linear-gradient(135deg, #111118, #0e0e14)",
-                      border: `1px solid ${isUp ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+                      background: "linear-gradient(135deg, #ffffff, #f8fafc)",
+                      border: `1px solid ${isUp ? "rgba(22, 163, 74, 0.3)" : "rgba(220, 38, 38, 0.3)"}`,
                       borderRadius: 10,
                       padding: "10px 14px",
                       cursor: "pointer",
@@ -2006,14 +2049,14 @@ export default function App() {
                       {item.name}
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
-                      <span style={{ fontSize: 13, color: S.gold, fontWeight: 800 }}>
+                      <span style={{ fontSize: 13, color: S.accent, fontWeight: 800 }}>
                         {fmt(item.price)}
                       </span>
                       <span style={{
                         fontSize: 11,
                         fontWeight: 800,
-                        color: isUp ? "#22c55e" : "#ef4444",
-                        background: isUp ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                        color: isUp ? "#16a34a" : "#dc2626",
+                        background: isUp ? "rgba(22, 163, 74, 0.1)" : "rgba(220, 38, 38, 0.1)",
                         padding: "2px 6px",
                         borderRadius: 6,
                         display: "flex",
@@ -2028,16 +2071,16 @@ export default function App() {
               })}
             </div>
             {marketLoading && (
-              <div style={{ ...S.card, borderColor: "#c9a84c55", background: "linear-gradient(145deg, #12121e, #0c0c14)", padding: 24 }}>
+              <div style={{ ...S.card, borderColor: "#1e3a8a55", background: "linear-gradient(145deg, #ffffff, #f8fafc)", padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: S.gold, animation: "pulse 1.2s infinite" }} />
-                  <div style={{ ...S.label, color: S.gold, marginBottom: 0 }}>Generating Market Intelligence Report...</div>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: S.accent, animation: "pulse 1.2s infinite" }} />
+                  <div style={{ ...S.label, color: S.accent, marginBottom: 0 }}>Generating Market Intelligence Report...</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ height: 14, width: "95%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
-                  <div style={{ height: 14, width: "80%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.15s" }} />
-                  <div style={{ height: 14, width: "88%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.3s" }} />
-                  <div style={{ height: 14, width: "65%", background: "#2a2a3e", borderRadius: 4, animation: "pulse 1.5s infinite 0.45s" }} />
+                  <div style={{ height: 14, width: "95%", background: "#e2e8f0", borderRadius: 4, animation: "pulse 1.5s infinite" }} />
+                  <div style={{ height: 14, width: "80%", background: "#e2e8f0", borderRadius: 4, animation: "pulse 1.5s infinite 0.15s" }} />
+                  <div style={{ height: 14, width: "88%", background: "#e2e8f0", borderRadius: 4, animation: "pulse 1.5s infinite 0.3s" }} />
+                  <div style={{ height: 14, width: "65%", background: "#e2e8f0", borderRadius: 4, animation: "pulse 1.5s infinite 0.45s" }} />
                 </div>
               </div>
             )}
@@ -2047,13 +2090,13 @@ export default function App() {
                 : marketResult === INVALID_KEY
                   ? <InvalidKeyBanner />
                   : (
-                    <div style={{ ...S.card, borderColor: "#c9a84c33" }}>
-                      <div style={{ ...S.label, color: S.gold, marginBottom: 12 }}>Analysis: {marketQuery}</div>
-                      <div style={{ fontSize: 14, lineHeight: 1.8, color: "#c8c4b8" }}>{renderMarkdown(marketResult)}</div>
+                    <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
+                      <div style={{ ...S.label, color: S.accent, marginBottom: 12 }}>Analysis: {marketQuery}</div>
+                      <div style={{ fontSize: 14, lineHeight: 1.8, color: "#475569" }}>{renderMarkdown(marketResult)}</div>
                     </div>
                   )
             ) : !marketLoading && (
-              <div style={{ border: "1px dashed #2a2a3e", borderRadius: 12, padding: 40, textAlign: "center", color: "#3a3a5e" }}>
+              <div style={{ border: "1px dashed #cbd5e1", borderRadius: 12, padding: 40, textAlign: "center", color: "#64748b" }}>
                 <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
                 <div style={{ fontSize: 13 }}>Search a card to see AI-powered market analysis</div>
               </div>
@@ -2066,12 +2109,12 @@ export default function App() {
         @keyframes pulse { 0%,100%{opacity: 0.3} 50%{opacity: 0.8} }
         @keyframes spin { to { transform: rotate(360deg); } }
         *{box-sizing:border-box}
-        input::placeholder{color:#3a3a5e}
-        select{color:#e8e4d9}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0a0a0f}::-webkit-scrollbar-thumb{background:#2a2a3e;border-radius:2px}
+        input::placeholder{color:#94a3b8}
+        select{color:#0f172a}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#f1f5f9}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:2px}
 
         /* ── Layout ── */
-        .app-header { padding: 20px 24px 0; border-bottom: 1px solid #1e1e2e; }
+        .app-header { padding: 20px 24px 0; border-bottom: 1px solid #e2e8f0; }
         .header-top { display: flex; justify-content: space-between; align-items: center; }
         .app-content { padding: 20px 24px 0; }
 
@@ -2121,7 +2164,7 @@ export default function App() {
           left: 0,
           right: 0,
           bottom: 0,
-          background: "rgba(10, 10, 15, 0.75)",
+          background: "rgba(15, 23, 42, 0.4)",
           backdropFilter: "blur(8px)",
           display: "flex",
           justifyContent: "center",
@@ -2133,8 +2176,8 @@ export default function App() {
             ...S.card,
             width: 400,
             padding: 30,
-            background: "linear-gradient(145deg, #111118, #0a0a0f)",
-            border: "1px solid #2a2a3e"
+            background: "linear-gradient(145deg, #ffffff, #f8fafc)",
+            border: "1px solid #e2e8f0"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <span style={{ fontSize: 18, fontWeight: 800, color: S.text }}>User Profile & Security</span>
@@ -2190,7 +2233,7 @@ export default function App() {
                 type="submit"
                 disabled={passwordLoading}
                 style={{
-                  background: S.gold,
+                  background: S.accent,
                   color: S.bg,
                   border: "none",
                   borderRadius: 8,
@@ -2216,12 +2259,12 @@ export default function App() {
           position: "fixed",
           bottom: 24,
           right: 24,
-          background: "rgba(10, 10, 15, 0.95)",
+          background: "rgba(255, 255, 255, 0.95)",
           backdropFilter: "blur(12px)",
-          border: "1px solid rgba(168, 144, 96, 0.35)",
+          border: "1px solid rgba(30, 58, 138, 0.25)",
           borderRadius: 12,
           padding: "14px 18px",
-          boxShadow: "0 10px 40px 0 rgba(0, 0, 0, 0.6)",
+          boxShadow: "0 10px 40px 0 rgba(0, 0, 0, 0.08)",
           zIndex: 10000,
           display: "flex",
           alignItems: "center",
@@ -2230,11 +2273,11 @@ export default function App() {
           animation: "slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
           fontFamily: "'Inter', sans-serif"
         }}>
-          <span style={{ fontSize: 20, color: toast.type === "success" ? S.gold : "#ef4444" }}>
+          <span style={{ fontSize: 20, color: toast.type === "success" ? S.accent : "#ef4444" }}>
             {toast.type === "success" ? "🔄" : "⚠️"}
           </span>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: S.gold, letterSpacing: "1px" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, letterSpacing: "1px" }}>
               {toast.type === "success" ? "LIVE SYNC STATUS" : "ALERT"}
             </div>
             <div style={{ fontSize: 13, color: S.text, lineHeight: 1.4, fontWeight: 500 }}>

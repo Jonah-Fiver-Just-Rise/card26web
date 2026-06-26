@@ -86,7 +86,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: AppColors.bg,
       body: Stack(
         children: [
           // Radial glow background
@@ -97,8 +97,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                   center: Alignment.center,
                   radius: 0.8,
                   colors: [
-                    AppColors.gold.withValues(alpha: 0.08),
-                    const Color(0xFF0A0A0F),
+                    AppColors.gold.withValues(alpha: 0.05),
+                    AppColors.bg,
                   ],
                 ),
               ),
@@ -145,9 +145,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                         width: 150,
                         height: 230,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF111118),
+                          color: AppColors.inputBg,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.gold.withValues(alpha: 0.6), width: 2),
+                          border: Border.all(color: AppColors.gold.withValues(alpha: 0.4), width: 2),
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),

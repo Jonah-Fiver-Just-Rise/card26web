@@ -4,13 +4,14 @@ import '../constants/app_colors.dart';
 class AppTheme {
   static ThemeData get darkTheme {
     return ThemeData(
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       scaffoldBackgroundColor: AppColors.bg,
       primaryColor: AppColors.gold,
-      colorScheme: const ColorScheme.dark(
+      colorScheme: const ColorScheme.light(
         primary: AppColors.gold,
         secondary: AppColors.textMuted,
         surface: AppColors.cardBg,
+        onSurface: AppColors.textPrimary,
       ),
       cardTheme: const CardTheme(
         color: AppColors.cardBg,
@@ -36,6 +37,7 @@ class AppTheme {
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.bg,
         elevation: 0,
+        iconTheme: IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(
           color: AppColors.textPrimary,
           fontSize: 20,

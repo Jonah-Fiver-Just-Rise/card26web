@@ -41,6 +41,43 @@ class _PortfolioTabState extends State<PortfolioTab> {
     return "$sign\$${absAmount.round().toString()}";
   }
 
+  String _detectSport(String name, String releaseName, String setName) {
+    final text = "$name $releaseName $setName".toLowerCase();
+    
+    // Specific players mapping first
+    if (RegExp(r'\bohtani\b|\bjudge\b|\btrout\b|\bacuna\b|\bsoto\b|\bharper\b|\bbetts\b|\bguerrero\b|\bpujols\b|\bripken\b|\bpiazza\b|\bortiz\b|\bmcgwire\b|\brodriguez\b|\bbaseball\b|\bmlb\b').hasMatch(text)) {
+      return "Baseball";
+    }
+    if (RegExp(r'\bwembanyama\b|\blebron\b|\bcurry\b|\bjordan\b|\bdoncic\b|\bclark\b|\btatum\b|\bkobe\b|\bshaq\b|\bbasketball\b|\bnba\b').hasMatch(text)) {
+      return "Basketball";
+    }
+    if (RegExp(r'\bmahomes\b|\bbrady\b|\bdart\b|\bburrow\b|\bjackson\b|\bstroud\b|\bpurdy\b|\ballen\b|\bhurts\b|\bcarter\b|\bskattebo\b|\bward\b|\bsanders\b|\bshough\b|\bmanning\b|\btarkenton\b|\bfootball\b|\bnfl\b').hasMatch(text)) {
+      return "Football";
+    }
+    if (RegExp(r'\bmcdavid\b|\bcrosby\b|\bbedard\b|\bovechkin\b|\bgretzky\b|\bhockey\b|\bnhl\b').hasMatch(text)) {
+      return "Hockey";
+    }
+    if (RegExp(r'\bmessi\b|\bronaldo\b|\bmbappe\b|\bhaaland\b|\bsoccer\b|\bfutbol\b|\bpremier league\b|\bchampions league\b|\bla liga\b').hasMatch(text)) {
+      return "Soccer";
+    }
+
+    // Broad keyword matching
+    if (text.contains("bowman") || text.contains("topps chrome") || text.contains("heritage") || text.contains("stadium club") || text.contains("allen & ginter")) {
+      return "Baseball";
+    }
+    if (text.contains("hoops") || text.contains("prizm basketball") || text.contains("court kings") || text.contains("nba hoops")) {
+      return "Basketball";
+    }
+    if (text.contains("prizm football") || text.contains("donruss") || text.contains("score") || text.contains("gridiron")) {
+      return "Football";
+    }
+    if (text.contains("young guns") || text.contains("upper deck") || text.contains("o-pee-chee")) {
+      return "Hockey";
+    }
+    
+    return "Basketball"; // Default fallback
+  }
+
   Future<void> _runCatalogSearch(StateSetter setModalState) async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
@@ -147,11 +184,24 @@ class _PortfolioTabState extends State<PortfolioTab> {
                   }
                 }
                 
+                final releaseName = item['releaseName'] ?? '';
+                final setName = item['setName'] ?? item['set'] ?? '';
+                final parallelName = item['parallelName'] ?? '';
+                final name = item['name'] ?? item['player'] ?? '';
+                
+                final detected = _detectSport(name, releaseName, setName);
+                
+                String setDesc = "$releaseName $setName";
+                if (parallelName.isNotEmpty) {
+                  setDesc += " ($parallelName)";
+                }
+                setDesc = setDesc.trim();
+                
                 return {
-                  'player': item['name'] ?? item['player'] ?? '',
+                  'player': name,
                   'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
-                  'set': item['setName'] ?? item['set'] ?? '',
-                  'sport': item['sport'] ?? item['segment'] ?? 'Basketball',
+                  'set': setDesc.isNotEmpty ? setDesc : setName,
+                  'sport': detected,
                   'estimatedPrice': price,
                 };
               }).toList();
