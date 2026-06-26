@@ -20,15 +20,171 @@ class _MarketTabState extends State<MarketTab> {
   bool _searchingCatalog = false;
   String _searchError = "";
   dynamic _selectedCard;
+  bool _loadingTrendingPrices = false;
 
-  final List<Map<String, dynamic>> _trendingMovements = [
-    { "name": "Wembanyama RC 2023", "query": "2023 Victor Wembanyama Prizm RC", "price": 625.00, "change": 14.2, "trend": "up" },
-    { "name": "Shohei Ohtani Chrome Auto", "query": "2018 Shohei Ohtani Bowman Chrome Auto", "price": 1420.00, "change": 8.5, "trend": "up" },
-    { "name": "Patrick Mahomes Prizm", "query": "2017 Patrick Mahomes Prizm RC", "price": 2850.00, "change": -2.4, "trend": "down" },
-    { "name": "Caitlin Clark RC", "query": "2024 Caitlin Clark Topps Chrome RC", "price": 310.00, "change": 22.1, "trend": "up" },
-    { "name": "Luka Dončić Prizm PSA 10", "query": "2018 Luka Dončić Prizm PSA 10", "price": 780.00, "change": 5.8, "trend": "up" },
-    { "name": "Connor McDavid Young Guns", "query": "2015 Connor McDavid Upper Deck Young Guns", "price": 1250.00, "change": -1.8, "trend": "down" }
+  List<Map<String, dynamic>> _trendingMovements = [
+    { "id": "15cd493d-1dbe-4a04-ba3f-ee873b2fd91d", "name": "Wembanyama RC 2023", "query": "2023 Victor Wembanyama Prizm RC", "price": 625.00, "change": 14.2, "trend": "up" },
+    { "id": "9551abef-ed4b-4662-bcd3-181549e704b2", "name": "Shohei Ohtani Chrome Auto", "query": "2018 Shohei Ohtani Bowman Chrome Auto", "price": 1420.00, "change": 8.5, "trend": "up" },
+    { "id": "b2189857-ba5d-4552-9bef-592ed1da57c8", "name": "Patrick Mahomes Prizm", "query": "2017 Patrick Mahomes Prizm RC", "price": 2850.00, "change": -2.4, "trend": "down" },
+    { "id": "08271afe-a16d-444f-8366-a4230acce486", "name": "Caitlin Clark RC", "query": "2024 Caitlin Clark Topps Chrome RC", "price": 310.00, "change": 22.1, "trend": "up" },
+    { "id": "403a7398-4b20-43c0-8cdb-cd78cfc8c78a", "name": "Luka Dončić Prizm PSA 10", "query": "2018 Luka Dončić Prizm PSA 10", "price": 780.00, "change": 5.8, "trend": "up" },
+    { "id": "73a98f95-1970-4ef3-806c-3bc321882d2c", "name": "Connor McDavid Young Guns", "query": "2015 Connor McDavid Upper Deck Young Guns", "price": 1250.00, "change": -1.8, "trend": "down" }
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTrendingPrices();
+  }
+
+  Future<void> _fetchTrendingPrices() async {
+    if (_loadingTrendingPrices) return;
+    setState(() {
+      _loadingTrendingPrices = true;
+    });
+
+    try {
+      final cardSightKey = AppConstants.cardSightApiKey;
+      if (cardSightKey.isEmpty || cardSightKey == "YOUR_CARDSIGHT_API_KEY") {
+        return;
+      }
+
+      final cardIds = _trendingMovements
+          .map((item) => item['id'] as String?)
+          .where((id) => id != null && id.isNotEmpty)
+          .toList();
+
+      final bulkUri = Uri.parse("https://api.cardsight.ai/v1/pricing/");
+      final response = await http.post(
+        bulkUri,
+        headers: {
+          "X-API-Key": cardSightKey,
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode({
+          "card_ids": cardIds,
+          "period": "all",
+          "listing_type": "both",
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = data['results'] as List?;
+        if (results != null) {
+          final Map<String, dynamic> resultsMap = {};
+          for (final r in results) {
+            if (r is Map && r['card_id'] != null) {
+              resultsMap[r['card_id'].toString()] = r;
+            }
+          }
+
+          final List<Map<String, dynamic>> updatedList = [];
+          for (final item in _trendingMovements) {
+            final cardId = item['id'] as String?;
+            double finalPrice = 0.0;
+
+            final result = resultsMap[cardId];
+            if (result != null && result['success'] == true && result['data'] != null) {
+              final pricingRes = result['data'];
+              final List rawSales = (pricingRes['raw']?['records'] as List?) ?? [];
+              final gradedRaw = pricingRes['graded'];
+              final List gradedSales = gradedRaw is List 
+                  ? gradedRaw 
+                  : ((gradedRaw?['records'] as List?) ?? []);
+              final sales = [...rawSales, ...gradedSales];
+
+              double total = 0.0;
+              int count = 0;
+              for (final s in sales) {
+                final val = s['price'] ?? s['price_usd'] ?? s['value'];
+                if (val != null) {
+                  final p = double.tryParse(val.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                  if (p > 0) {
+                    total += p;
+                    count++;
+                  }
+                }
+              }
+
+              final avgPrice = count > 0 ? total / count : 0.0;
+              final parsedAvg = double.tryParse((pricingRes['averagePrice'] ?? pricingRes['average'] ?? '').toString()) ?? 0.0;
+              finalPrice = parsedAvg > 0 ? parsedAvg : (avgPrice > 0 ? avgPrice : 0.0);
+            }
+
+            // Marketplace fallback
+            if (finalPrice <= 0 && cardId != null && cardId.isNotEmpty) {
+              try {
+                final marketUri = Uri.parse("https://api.cardsight.ai/v1/marketplace/$cardId");
+                final marketRes = await http.get(
+                  marketUri,
+                  headers: {
+                    "X-API-Key": cardSightKey,
+                    "Content-Type": "application/json",
+                  },
+                ).timeout(const Duration(seconds: 10));
+
+                if (marketRes.statusCode == 200) {
+                  final mData = jsonDecode(marketRes.body);
+                  final rawRecords = mData['raw']?['records'];
+                  final List records = rawRecords is List 
+                      ? rawRecords 
+                      : (mData['raw'] is List ? mData['raw'] : []);
+
+                  double total = 0.0;
+                  int count = 0;
+                  for (final r in records) {
+                    final val = r['price'] ?? r['price_usd'] ?? r['value'];
+                    if (val != null) {
+                      final p = double.tryParse(val.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                      if (p > 0) {
+                        total += p;
+                        count++;
+                      }
+                    }
+                  }
+                  if (count > 0) {
+                    finalPrice = total / count;
+                  }
+                }
+              } catch (e) {
+                debugPrint("Marketplace fallback failed for $cardId: $e");
+              }
+              await Future.delayed(const Duration(milliseconds: 400));
+            }
+
+            if (finalPrice > 0) {
+              final double baseline = (item['price'] as num).toDouble();
+              final double changePct = baseline > 0 ? double.parse((((finalPrice - baseline) / baseline) * 100).toStringAsFixed(1)) : 0.0;
+              updatedList.add({
+                ...item,
+                'price': finalPrice,
+                'change': changePct,
+                'trend': changePct > 0 ? "up" : (changePct < 0 ? "down" : "up"),
+              });
+            } else {
+              updatedList.add({
+                ...item,
+                'price': 0.0,
+                'change': 0.0,
+                'trend': "up",
+              });
+            }
+          }
+
+          setState(() {
+            _trendingMovements = updatedList;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching trending prices: $e");
+    } finally {
+      setState(() {
+        _loadingTrendingPrices = false;
+      });
+    }
+  }
 
   String _formatCurrency(double amount) {
     final absAmount = amount.abs();
@@ -456,14 +612,30 @@ Keep the analysis professional, specific with numbers, and under 250 words.""";
               ),
             ],
             const SizedBox(height: 24),
-            const Text(
-              "🔥 DYNAMIC TRENDING MOVEMENTS",
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: AppColors.gold,
-                letterSpacing: 1,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "🔥 DYNAMIC TRENDING MOVEMENTS",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.gold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _fetchTrendingPrices,
+                  child: Text(
+                    _loadingTrendingPrices ? "Refreshing..." : "Refresh Prices",
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMuted,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             GridView.builder(

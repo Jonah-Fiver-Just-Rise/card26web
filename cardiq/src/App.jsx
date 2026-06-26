@@ -1541,12 +1541,19 @@ Instructions:
 
         if (finalPrice > 0) {
           const baseline = item.price;
-          const changePct = parseFloat((((finalPrice - baseline) / baseline) * 100).toFixed(1));
+          const changePct = baseline > 0 ? parseFloat((((finalPrice - baseline) / baseline) * 100).toFixed(1)) : 0;
           currentItem = {
             ...item,
             price: finalPrice,
-            change: changePct === 0 ? item.change : changePct,
-            trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : item.trend)
+            change: changePct,
+            trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : "up")
+          };
+        } else {
+          currentItem = {
+            ...item,
+            price: 0,
+            change: 0,
+            trend: "up"
           };
         }
         updated.push(currentItem);
