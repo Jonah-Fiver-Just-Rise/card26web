@@ -1708,7 +1708,6 @@ export default function App() {
       <div className="app-header">
         <div className="header-top">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={LogoImg} alt="Kartis Logo" style={{ height: 26, width: "auto" }} />
             <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>Kartis</span>
             <span className="header-subtitle" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
           </div>

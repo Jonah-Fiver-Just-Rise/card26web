@@ -18,11 +18,13 @@ import 'features/grading/grading_tab.dart';
 import 'features/advisor/advisor_tab.dart';
 import 'features/market/market_tab.dart';
 import 'features/profile/profile_screen.dart';
+import 'features/splash/splash_screen.dart';
 
 import 'core/services/notification_service.dart';
 
 // # Run this inside the cardiq_mobile directory:
 // flutter run --dart-define-from-file=../cardiq/.env
+// flutter build apk --release --dart-define-from-file=../cardiq/.env
 
 
 void main() async {
@@ -49,7 +51,7 @@ class KartisApp extends StatelessWidget {
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const AuthGate(),
+      home: const SplashScreen(),
     );
   }
 }
@@ -255,16 +257,7 @@ class _MainScreenState extends State<MainScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Row(
-              children: [
-                Image.asset(
-                  'assets/images/logo.png',
-                  height: 24,
-                ),
-                const SizedBox(width: 8),
-                const Text(AppConstants.appName),
-              ],
-            ),
+            title: const Text(AppConstants.appName),
             actions: [
               IconButton(
                 icon: const Icon(Icons.person_outline, size: 22, color: AppColors.gold),
