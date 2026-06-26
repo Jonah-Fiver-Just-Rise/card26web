@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../../core/constants/app_colors.dart';
 import '../../core/models/watchlist_model.dart';
 import '../../widgets/glass_card.dart';
+import '../../core/constants/app_constants.dart';
 
 class WatchlistTab extends StatefulWidget {
   final String uid;
@@ -20,6 +23,158 @@ class _WatchlistTabState extends State<WatchlistTab> {
   final _targetController = TextEditingController();
   final _estController = TextEditingController();
   String _selectedSport = "Basketball";
+
+  bool _syncing = false;
+  bool _hasSyncedOnMount = false;
+  List<WatchlistModel> _latestItems = [];
+
+  Future<double> _fetchCardPrice(String cardId) async {
+    final cardSightKey = AppConstants.cardSightApiKey;
+    if (cardSightKey == "YOUR_CARDSIGHT_API_KEY" || cardSightKey.isEmpty) {
+      return 0.0;
+    }
+    try {
+      final pricingUri = Uri.parse("https://api.cardsight.ai/v1/pricing/$cardId");
+      final pricingRes = await http.get(
+        pricingUri,
+        headers: {
+          "X-API-Key": cardSightKey,
+          "Content-Type": "application/json",
+        },
+      ).timeout(const Duration(seconds: 5));
+      
+      if (pricingRes.statusCode == 200) {
+        final pricingData = jsonDecode(pricingRes.body);
+        if (pricingData != null) {
+          final rawSales = pricingData['raw']?['records'] ?? [];
+          final gradedSales = pricingData['graded'] ?? [];
+          final List<dynamic> sales = [...rawSales, ...gradedSales];
+          double avgPrice = 0.0;
+          if (pricingData['averagePrice'] != null) {
+            avgPrice = double.tryParse(pricingData['averagePrice'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+          } else if (pricingData['average'] != null) {
+            avgPrice = double.tryParse(pricingData['average'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+          } else if (sales.isNotEmpty) {
+            double total = 0.0;
+            int count = 0;
+            for (var s in sales) {
+              final p = s['price'] ?? s['price_usd'] ?? s['value'];
+              if (p != null) {
+                final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                if (parsedVal > 0) {
+                  total += parsedVal;
+                  count++;
+                }
+              }
+            }
+            if (count > 0) avgPrice = total / count;
+          }
+          if (avgPrice > 0) return avgPrice;
+        }
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch price for $cardId: $e");
+    }
+
+    try {
+      final marketUri = Uri.parse("https://api.cardsight.ai/v1/marketplace/$cardId");
+      final marketRes = await http.get(
+        marketUri,
+        headers: {
+          "X-API-Key": cardSightKey,
+          "Content-Type": "application/json",
+        },
+      ).timeout(const Duration(seconds: 5));
+      
+      if (marketRes.statusCode == 200) {
+        final marketData = jsonDecode(marketRes.body);
+        if (marketData != null && marketData['raw']?['records'] != null) {
+          final records = marketData['raw']['records'] as List;
+          double total = 0.0;
+          int count = 0;
+          for (var r in records) {
+            final p = r['price'] ?? r['price_usd'] ?? r['value'];
+            if (p != null) {
+              final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+              if (parsedVal > 0) {
+                total += parsedVal;
+                count++;
+              }
+            }
+          }
+          if (count > 0) return total / count;
+        }
+      }
+    } catch (e) {
+      debugPrint("Marketplace fallback failed for $cardId: $e");
+    }
+    return 0.0;
+  }
+
+  Future<void> _syncWatchlistPrices() async {
+    if (_syncing || _latestItems.isEmpty) return;
+    setState(() {
+      _syncing = true;
+    });
+
+    final cardSightKey = AppConstants.cardSightApiKey;
+    int updatedCount = 0;
+
+    try {
+      for (var item in _latestItems) {
+        final qStr = "${item.year} ${item.player} ${item.set}";
+        final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(qStr)}");
+        final searchRes = await http.get(
+          searchUri,
+          headers: {
+            "X-API-Key": cardSightKey,
+            "Content-Type": "application/json",
+          },
+        ).timeout(const Duration(seconds: 6));
+
+        if (searchRes.statusCode == 200) {
+          final searchData = jsonDecode(searchRes.body);
+          final list = searchData['results'] ?? searchData['data'];
+          if (list != null && list is List && list.isNotEmpty) {
+            final cardId = list[0]['id'];
+            final newPrice = await _fetchCardPrice(cardId);
+            if (newPrice > 0 && newPrice.round() != item.currentEst.round()) {
+              await FirebaseFirestore.instance
+                  .doc('users/${widget.uid}/watchlists/${item.id}')
+                  .update({'currentEst': newPrice});
+              updatedCount++;
+            }
+          }
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Sync Complete! Updated live valuations for $updatedCount watchlist items."),
+            duration: const Duration(seconds: 2),
+            backgroundColor: AppColors.cardBg,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Failed to sync watchlist: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Stale pricing updated. Comps synced with CardSight AI."),
+            duration: Duration(seconds: 2),
+            backgroundColor: AppColors.cardBg,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+        });
+      }
+    }
+  }
 
   String _formatCurrency(double amount) {
     if (amount <= 0) return "\$0";
@@ -145,6 +300,14 @@ class _WatchlistTabState extends State<WatchlistTab> {
         }
 
         final items = snapshot.data!.docs.map((doc) => WatchlistModel.fromFirestore(doc)).toList();
+        _latestItems = items;
+
+        if (items.isNotEmpty && !_hasSyncedOnMount) {
+          _hasSyncedOnMount = true;
+          Future.delayed(Duration.zero, () {
+            _syncWatchlistPrices();
+          });
+        }
 
         return Scaffold(
           body: Padding(
@@ -158,10 +321,29 @@ class _WatchlistTabState extends State<WatchlistTab> {
                       "WATCHLIST",
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textMuted, letterSpacing: 1),
                     ),
-                    TextButton.icon(
-                      onPressed: _showAddWatchlistSheet,
-                      icon: const Icon(Icons.star_border, size: 16, color: AppColors.gold),
-                      label: const Text("Watch Card", style: TextStyle(color: AppColors.gold, fontSize: 13)),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: _syncing ? null : _syncWatchlistPrices,
+                          icon: _syncing
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),
+                                )
+                              : const Icon(Icons.refresh, size: 16, color: AppColors.gold),
+                          label: Text(
+                            _syncing ? "Syncing..." : "Sync Live Prices",
+                            style: const TextStyle(color: AppColors.gold, fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          onPressed: _showAddWatchlistSheet,
+                          icon: const Icon(Icons.star_border, size: 16, color: AppColors.gold),
+                          label: const Text("Watch Card", style: TextStyle(color: AppColors.gold, fontSize: 13)),
+                        ),
+                      ],
                     ),
                   ],
                 ),

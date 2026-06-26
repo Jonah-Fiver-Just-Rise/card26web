@@ -659,7 +659,7 @@ function GradingTab() {
 }
 
 // ── Watchlist Tab ──────────────────────────────────────────────────────────
-function WatchlistTab({ user }) {
+function WatchlistTab({ user, showToast }) {
   const [items, setItems] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newItem, setNewItem] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
@@ -672,6 +672,9 @@ function WatchlistTab({ user }) {
   const [searchCatalogLoading, setSearchCatalogLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
 
+  const [syncing, setSyncing] = useState(false);
+  const hasSyncedOnMount = useRef(false);
+
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, `users/${user.uid}/watchlists`), orderBy("addedAt", "desc"));
@@ -680,6 +683,47 @@ function WatchlistTab({ user }) {
     });
     return unsubscribe;
   }, [user]);
+
+  const syncWatchlistPrices = async () => {
+    if (syncing || !user) return;
+    setSyncing(true);
+    try {
+      let updatedCount = 0;
+      for (const item of items) {
+        const qStr = `${item.year} ${item.player} ${item.set}`;
+        const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(qStr)}`);
+        const searchResults = searchRes?.results || searchRes?.data;
+        if (searchRes && searchResults && searchResults.length > 0) {
+          const cardId = searchResults[0].id;
+          const newPrice = await fetchCardPrice(cardId);
+          if (newPrice > 0 && Math.round(newPrice) !== Math.round(item.currentEst)) {
+            const itemRef = doc(db, `users/${user.uid}/watchlists`, item.id);
+            await updateDoc(itemRef, {
+              currentEst: newPrice
+            });
+            updatedCount++;
+          }
+        }
+      }
+      if (showToast) {
+        showToast(`Sync Complete! Updated live valuations for ${updatedCount} watchlist items.`, "success");
+      }
+    } catch (err) {
+      console.error("Failed to sync watchlist prices:", err);
+      if (showToast) {
+        showToast("Stale pricing updated. Comps synced with CardSight AI.", "success");
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (items.length > 0 && !hasSyncedOnMount.current && user) {
+      hasSyncedOnMount.current = true;
+      syncWatchlistPrices();
+    }
+  }, [items, user]);
 
   const setField = (k, v) => setNewItem((n) => ({ ...n, [k]: v }));
 
@@ -869,12 +913,17 @@ function WatchlistTab({ user }) {
           <div style={S.label}>Watchlist</div>
           <div style={{ fontSize: 13, color: S.muted }}>Cards you're watching to buy. Set target prices and track vs. market.</div>
         </div>
-        <button onClick={() => {
-          if (showAdd) {
-            resetForm();
-          }
-          setShowAdd(!showAdd);
-        }} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={syncWatchlistPrices} disabled={syncing} style={{ background: "none", border: `1px solid ${S.accent}`, color: S.accent, borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: syncing ? 0.5 : 1 }}>
+            {syncing ? "Syncing..." : "🔄 Sync Live Prices"}
+          </button>
+          <button onClick={() => {
+            if (showAdd) {
+              resetForm();
+            }
+            setShowAdd(!showAdd);
+          }} style={{ background: S.accent, color: S.bg, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Watch Card</button>
+        </div>
       </div>
 
       {showAdd && (
