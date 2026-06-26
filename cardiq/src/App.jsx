@@ -1242,7 +1242,11 @@ export default function App() {
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState("");
 
-  const [tab, setTab] = useState("Portfolio");
+  const [tab, setTab] = useState(() => {
+    const hash = window.location.hash.replace("#", "");
+    const found = TABS.find(t => t.toLowerCase() === hash.toLowerCase());
+    return found || "Portfolio";
+  });
   const [cards, setCards] = useState([]);
   const [chatMessages, setChatMessages] = useState([
     { role: "assistant", content: "Hey! I'm your Kartis financial advisor. I know your full portfolio — ask me anything about valuations, buy/sell signals, grading strategy, or market trends." },
@@ -1303,6 +1307,22 @@ export default function App() {
     if (tab === "Market") {
       fetchTrendingPrices(false);
     }
+  }, [tab]);
+
+  useEffect(() => {
+    window.location.hash = tab.toLowerCase();
+  }, [tab]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace("#", "");
+      const found = TABS.find(t => t.toLowerCase() === hash.toLowerCase());
+      if (found && found !== tab) {
+        setTab(found);
+      }
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, [tab]);
 
   const chatEndRef = useRef(null);
@@ -2248,7 +2268,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
-              {trendingMovements.map((item) => {
+              {trendingMovements.filter(item => item.change >= 0).map((item) => {
                 const isUp = item.trend === "up";
                 return (
                   <div

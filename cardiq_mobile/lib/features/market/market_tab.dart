@@ -31,6 +31,10 @@ class _MarketTabState extends State<MarketTab> {
     { "id": "9106f332-0bad-4507-8744-8cd5872b2703", "name": "Connor Bedard Young Guns", "query": "2023-24 Connor Bedard (Upper Deck Base Set)", "price": 225.00, "change": 14.5, "trend": "up" }
   ];
 
+  List<Map<String, dynamic>> get _profitGainingMovements {
+    return _trendingMovements.where((item) => (item['change'] ?? 0.0) >= 0.0).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -647,9 +651,9 @@ Keep the analysis professional, specific with numbers, and under 250 words.""";
                 mainAxisSpacing: 10,
                 childAspectRatio: 2.2,
               ),
-              itemCount: _trendingMovements.length,
+              itemCount: _profitGainingMovements.length,
               itemBuilder: (context, index) {
-                final item = _trendingMovements[index];
+                final item = _profitGainingMovements[index];
                 final isUp = item['trend'] == "up";
                 return InkWell(
                   onTap: () {
