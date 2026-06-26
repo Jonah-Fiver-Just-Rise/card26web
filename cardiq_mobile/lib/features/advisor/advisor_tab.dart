@@ -109,13 +109,45 @@ class _AdvisorTabState extends State<AdvisorTab> {
           .collection('users/${widget.uid}/portfolios')
           .get();
       
+      double totalCost = 0.0;
+      double totalValue = 0.0;
       final cardsStr = snapshot.docs.map((doc) {
         final data = doc.data();
-        final qty = data['quantity'] ?? 1;
-        return "${qty}x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${data['purchasePrice']}, est: \$${data['currentValue']}";
+        final qty = (data['quantity'] ?? 1) as num;
+        final buyPrice = (data['purchasePrice'] ?? 0.0) as num;
+        final currVal = (data['currentValue'] ?? 0.0) as num;
+        totalCost += buyPrice * qty;
+        totalValue += currVal * qty;
+        return "${qty}x ${data['year']} ${data['player']} (${data['set']}, ${data['grade']}) — buy price: \$${buyPrice.toStringAsFixed(2)}, est: \$${currVal.toStringAsFixed(2)}";
       }).join("\n");
 
-      final systemPrompt = "You are a sports card advisor. User's portfolio:\n$cardsStr\nGive direct advice under 150 words.";
+      final double totalGainPct = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0.0;
+
+      final trendsStr = [
+        "Wembanyama RC 2023: current price \$625.0 (+14.2% 📈)",
+        "Shohei Ohtani Chrome Auto: current price \$1420.0 (+8.5% 📈)",
+        "Patrick Mahomes Prizm: current price \$2850.0 (-2.4% 📉)",
+        "Caitlin Clark RC: current price \$310.0 (+22.1% 📈)",
+        "Luka Dončić Prizm PSA 10: current price \$780.0 (+5.8% 📈)",
+        "Connor McDavid Young Guns: current price \$1250.0 (-1.8% 📉)",
+      ].join("\n");
+
+      final systemPrompt = """
+You are Kartis, the client's premium sports card financial advisor. Your sole purpose is to analyze the market, player performance/news, market trends, and the client's portfolio to tell them exactly when to BUY, SELL, or HOLD. You do all the analytical work and give clear, decisive instructions so the client does not have to think.
+
+Client's Active Portfolio:
+${cardsStr.isEmpty ? 'Empty portfolio' : cardsStr}
+Total Invested: \$${totalCost.toStringAsFixed(2)} | Current Value: \$${totalValue.toStringAsFixed(2)} | Return: ${totalGainPct.toStringAsFixed(1)}%
+
+Current Market Trends:
+$trendsStr
+
+Instructions:
+- Take all portfolio details and current market trends, news, and pricing into account.
+- Act as a decisive financial advisor. Tell the client exactly when to BUY, SELL, or HOLD specific cards in their portfolio or watchlists. Do not give generic or passive advice.
+- When suggesting actions, prioritize the client's risk management and ROI maximization.
+- Keep responses concise, direct, and under 200 words. Speak like a professional card fund manager. Use bold headings and clean formatting.
+""";
 
       final apiKey = AppConstants.geminiApiKey;
 

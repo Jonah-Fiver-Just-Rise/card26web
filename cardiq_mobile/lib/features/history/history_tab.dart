@@ -31,54 +31,204 @@ class _HistoryTabState extends State<HistoryTab> {
     double totalValue = widget.cards.fold(0.0, (sum, item) => sum + (item.currentValue * item.quantity));
     double totalCost = widget.cards.fold(0.0, (sum, item) => sum + (item.purchasePrice * item.quantity));
 
-    // If portfolio is empty, fall back to mock demo data to look premium
-    bool isDemo = totalCost <= 0 && totalValue <= 0;
-    double activeCost = isDemo ? 3200 : totalCost;
-    double activeValue = isDemo ? 4810 : totalValue;
+    final now = DateTime.now();
 
-    // Generate dynamic points based on filter
+    DateTime getCutoff(String filter, String label) {
+      final date = DateTime(now.year, now.month, now.day, now.hour, now.minute, now.second);
+      if (filter == "1D") {
+        if (label == "Today") return date;
+        final hourMap = { "9 AM": 9, "12 PM": 12, "3 PM": 15, "6 PM": 18, "9 PM": 21 };
+        final hr = hourMap[label] ?? 12;
+        return DateTime(date.year, date.month, date.day, hr);
+      }
+      if (filter == "1W") {
+        if (label == "Today") return date;
+        final match = RegExp(r'^(\d+)d\sago$').firstMatch(label);
+        final daysAgo = match != null ? int.parse(match.group(1)!) : 0;
+        return date.subtract(Duration(days: daysAgo));
+      }
+      if (filter == "1M") {
+        if (label == "Today") return date;
+        final match = RegExp(r'^(\d+)w\sago$').firstMatch(label);
+        final weeksAgo = match != null ? int.parse(match.group(1)!) : 0;
+        return date.subtract(Duration(days: weeksAgo * 7));
+      }
+      if (filter == "3Y" || filter == "5Y") {
+        if (label == "Today") return date;
+        final match = RegExp(r'^(\d+)y\sago$').firstMatch(label);
+        final yearsAgo = match != null ? int.parse(match.group(1)!) : 0;
+        return DateTime(date.year - yearsAgo, date.month, date.day);
+      }
+      // 1Y Filter
+      if (label == "Today") return date;
+      final match = RegExp(r"^([A-Za-z]+)\s'(\d+)$").firstMatch(label);
+      if (match != null) {
+        final monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        final mIdx = monthNames.indexOf(match.group(1)!);
+        final year = 2000 + int.parse(match.group(2)!);
+        return DateTime(year, mIdx + 2, 0, 23, 59, 59); // last day of month
+      }
+      return date;
+    }
+
+    double getPortfolioValueAt(DateTime cutoff) {
+      double total = 0;
+      bool hasAnyCard = false;
+      for (final c in widget.cards) {
+        final addedDate = c.addedAt.isNotEmpty ? DateTime.tryParse(c.addedAt) ?? DateTime(0) : DateTime(0);
+        if (addedDate.isBefore(cutoff) || addedDate.isAtSameMomentAs(cutoff)) {
+          total += c.currentValue * c.quantity;
+          hasAnyCard = true;
+        }
+      }
+      return hasAnyCard ? total : 0;
+    }
+
     List<String> labels = [];
     List<double> values = [];
 
-    if (_timeFilter == "1D") {
-      labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
-      final norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
-      for (int i = 0; i < labels.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
+    bool isDemo = widget.cards.isEmpty || (totalCost <= 0 && totalValue <= 0);
+    double activeCost = isDemo ? 3200.0 : totalCost;
+    double activeValue = isDemo ? 4810.0 : totalValue;
+
+    if (isDemo) {
+      if (_timeFilter == "1D") {
+        labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
+        final norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "1W") {
+        labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
+        final norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "1M") {
+        labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
+        final norm = [0.0, 0.22, 0.55, 0.78, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "3Y") {
+        labels = ["3y ago", "2y ago", "1y ago", "Today"];
+        final norm = [0.0, 0.45, 0.78, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "5Y") {
+        labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
+        final norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else { // 1Y
+        final months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
+        final norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
+        for (int i = 0; i < months.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+          labels.add(months[i]);
+        }
+        labels.add("Today");
+        values.add(activeValue);
       }
-    } else if (_timeFilter == "1W") {
-      labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
-      final norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
-      for (int i = 0; i < labels.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
+    } else {
+      if (_timeFilter == "1D") {
+        labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
+        for (final l in labels) {
+          values.add(getPortfolioValueAt(getCutoff("1D", l)));
+        }
+      } else if (_timeFilter == "1W") {
+        labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
+        for (final l in labels) {
+          values.add(getPortfolioValueAt(getCutoff("1W", l)));
+        }
+      } else if (_timeFilter == "1M") {
+        labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
+        for (final l in labels) {
+          values.add(getPortfolioValueAt(getCutoff("1M", l)));
+        }
+      } else if (_timeFilter == "3Y") {
+        labels = ["3y ago", "2y ago", "1y ago", "Today"];
+        for (final l in labels) {
+          values.add(getPortfolioValueAt(getCutoff("3Y", l)));
+        }
+      } else if (_timeFilter == "5Y") {
+        labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
+        for (final l in labels) {
+          values.add(getPortfolioValueAt(getCutoff("5Y", l)));
+        }
+      } else { // 1Y
+        final months = <String>[];
+        final monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        for (int i = 11; i >= 0; i--) {
+          final d = DateTime(now.year, now.month - i, 1);
+          final yrShort = d.year.toString().substring(2);
+          months.add("${monthNames[d.month - 1]} '$yrShort");
+        }
+        for (final m in months) {
+          labels.add(m);
+          values.add(getPortfolioValueAt(getCutoff("1Y", m)));
+        }
+        labels.add("Today");
+        values.add(totalValue);
       }
-    } else if (_timeFilter == "1M") {
-      labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
-      final norm = [0.0, 0.22, 0.55, 0.78, 1.0];
-      for (int i = 0; i < labels.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
+    }
+
+    // Check if values computed to all zeros (edge case), if so fall back to demo
+    bool allZeros = true;
+    for (final v in values) {
+      if (v > 0) {
+        allZeros = false;
+        break;
       }
-    } else if (_timeFilter == "3Y") {
-      labels = ["3y ago", "2y ago", "1y ago", "Today"];
-      final norm = [0.0, 0.45, 0.78, 1.0];
-      for (int i = 0; i < labels.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
+    }
+
+    if (allZeros && !isDemo) {
+      values.clear();
+      labels.clear();
+      double activeCost = totalCost > 0 ? totalCost : 3200;
+      double activeValue = totalValue > 0 ? totalValue : 4810;
+      if (_timeFilter == "1D") {
+        labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
+        final norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "1W") {
+        labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
+        final norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "1M") {
+        labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
+        final norm = [0.0, 0.22, 0.55, 0.78, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "3Y") {
+        labels = ["3y ago", "2y ago", "1y ago", "Today"];
+        final norm = [0.0, 0.45, 0.78, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else if (_timeFilter == "5Y") {
+        labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
+        final norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
+        for (int i = 0; i < labels.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+        }
+      } else { // 1Y
+        final months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
+        final norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
+        for (int i = 0; i < months.length; i++) {
+          values.add(activeCost + (activeValue - activeCost) * norm[i]);
+          labels.add(months[i]);
+        }
+        labels.add("Today");
+        values.add(activeValue);
       }
-    } else if (_timeFilter == "5Y") {
-      labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
-      final norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
-      for (int i = 0; i < labels.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
-      }
-    } else { // 1Y
-      final months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
-      final norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
-      for (int i = 0; i < months.length; i++) {
-        values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        labels.add(months[i]);
-      }
-      labels.add("Today");
-      values.add(activeValue);
     }
 
     double start = values.first;

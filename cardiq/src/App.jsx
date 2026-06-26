@@ -1024,53 +1024,125 @@ function HistoryTab({ cards }) {
   const totalValue = cards.reduce((s, c) => s + (c.currentValue * (c.quantity || 1)), 0);
   const totalCost = cards.reduce((s, c) => s + (c.purchasePrice * (c.quantity || 1)), 0);
 
-  // Generate dynamic relative history that scales to the user's actual portfolio value & cost basis based on filter
+  // Generate dynamic relative history that scales to the user's actual portfolio value based on card addition dates (addedAt)
   const data = useMemo(() => {
+    const now = new Date();
+    
+    const getCutoff = (filter, label) => {
+      const date = new Date(now);
+      if (filter === "1D") {
+        if (label === "Today") return date;
+        const hourMap = { "9 AM": 9, "12 PM": 12, "3 PM": 15, "6 PM": 18, "9 PM": 21 };
+        date.setHours(hourMap[label] || 12, 0, 0, 0);
+        return date;
+      }
+      if (filter === "1W") {
+        if (label === "Today") return date;
+        const match = label.match(/^(\d+)d\sago$/);
+        const daysAgo = match ? parseInt(match[1]) : 0;
+        date.setDate(date.getDate() - daysAgo);
+        date.setHours(23, 59, 59, 999);
+        return date;
+      }
+      if (filter === "1M") {
+        if (label === "Today") return date;
+        const match = label.match(/^(\d+)w\sago$/);
+        const weeksAgo = match ? parseInt(match[1]) : 0;
+        date.setDate(date.getDate() - (weeksAgo * 7));
+        date.setHours(23, 59, 59, 999);
+        return date;
+      }
+      if (filter === "3Y" || filter === "5Y") {
+        if (label === "Today") return date;
+        const match = label.match(/^(\d+)y\sago$/);
+        const yearsAgo = match ? parseInt(match[1]) : 0;
+        date.setFullYear(date.getFullYear() - yearsAgo);
+        date.setHours(23, 59, 59, 999);
+        return date;
+      }
+      // 1Y Filter
+      if (label === "Today") return date;
+      const match = label.match(/^([A-Za-z]+)\s'(\d+)$/);
+      if (match) {
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const mIdx = monthNames.indexOf(match[1]);
+        const year = 2000 + parseInt(match[2]);
+        return new Date(year, mIdx + 1, 0, 23, 59, 59, 999); // last day of month
+      }
+      return date;
+    };
+
+    const getPortfolioValueAt = (cutoff) => {
+      let total = 0;
+      let hasAnyCard = false;
+      cards.forEach((c) => {
+        const addedDate = c.addedAt ? new Date(c.addedAt) : new Date(0);
+        if (addedDate <= cutoff) {
+          total += c.currentValue * (c.quantity || 1);
+          hasAnyCard = true;
+        }
+      });
+      // If we don't have any cards at this cutoff point, but the portfolio is NOT empty overall,
+      // return a baseline of 0 so the chart shows a spike/progression.
+      return hasAnyCard ? total : 0;
+    };
+
+    let points = [];
     if (timeFilter === "1D") {
-      const hours = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
-      const norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
-      return hours.map((h, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: h, value: val };
-      });
+      points = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"].map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("1D", label))
+      }));
     } else if (timeFilter === "1W") {
-      const days = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
-      const norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
-      return days.map((d, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: d, value: val };
-      });
+      points = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"].map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("1W", label))
+      }));
     } else if (timeFilter === "1M") {
-      const weeks = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
-      const norm = [0.0, 0.22, 0.55, 0.78, 1.0];
-      return weeks.map((w, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: w, value: val };
-      });
+      points = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"].map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("1M", label))
+      }));
     } else if (timeFilter === "3Y") {
-      const years = ["3y ago", "2y ago", "1y ago", "Today"];
-      const norm = [0.0, 0.45, 0.78, 1.0];
-      return years.map((y, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: y, value: val };
-      });
+      points = ["3y ago", "2y ago", "1y ago", "Today"].map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("3Y", label))
+      }));
     } else if (timeFilter === "5Y") {
-      const years = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
-      const norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
-      return years.map((y, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: y, value: val };
-      });
+      points = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"].map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("5Y", label))
+      }));
     } else { // 1Y
-      const months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
-      const norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
-      const historyData = months.map((m, idx) => {
-        const val = totalCost + (totalValue - totalCost) * norm[idx];
-        return { month: m, value: val };
-      });
-      return [...historyData, { month: "Today", value: totalValue }];
+      const months = [];
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const label = `${monthNames[d.getMonth()]} '${String(d.getFullYear()).slice(-2)}`;
+        months.push(label);
+      }
+      points = months.map((label) => ({
+        month: label,
+        value: getPortfolioValueAt(getCutoff("1Y", label))
+      }));
+      points.push({ month: "Today", value: totalValue });
     }
-  }, [totalCost, totalValue, timeFilter]);
+
+    // Fallback if all values are 0 (e.g. empty portfolio), show beautiful mock data
+    if (points.every(p => p.value === 0)) {
+      const demoVal = 4810;
+      const demoCost = 3200;
+      const norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
+      if (timeFilter === "1D") {
+        return ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"].map((h, idx) => ({ month: h, value: demoCost + (demoVal - demoCost) * [0, 0.1, 0.2, 0.3, 0.6, 1][idx] }));
+      }
+      const months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
+      const historyData = months.map((m, idx) => ({ month: m, value: demoCost + (demoVal - demoCost) * norm[idx] }));
+      return [...historyData, { month: "Today", value: demoVal }];
+    }
+
+    return points;
+  }, [cards, totalValue, timeFilter]);
 
   const start = data[0].value;
   const end = data[data.length - 1].value;
@@ -1085,7 +1157,7 @@ function HistoryTab({ cards }) {
     if (timeFilter === "1M") return "4 weeks ago";
     if (timeFilter === "3Y") return "3 years ago";
     if (timeFilter === "5Y") return "5 years ago";
-    return "Jan 2024";
+    return data[0].month;
   };
 
   return (
@@ -1182,6 +1254,10 @@ export default function App() {
   const [marketQuery, setMarketQuery] = useState("");
   const [marketResult, setMarketResult] = useState("");
   const [marketLoading, setMarketLoading] = useState(false);
+  const [marketSearchResults, setMarketSearchResults] = useState([]);
+  const [marketSearchLoading, setMarketSearchLoading] = useState(false);
+  const [marketSearchError, setMarketSearchError] = useState("");
+  const [analyzedCard, setAnalyzedCard] = useState(null);
   const [autoPricingLoading, setAutoPricingLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -1331,7 +1407,23 @@ export default function App() {
 
     try {
       const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
-      const system = `You are an expert sports card financial advisor with deep knowledge of PSA/BGS grading, Panini, Topps, Upper Deck, rookie card investing, pop reports, auction results, and market trends.\n\nUser portfolio:\n${ctx}\nTotal invested: ${fmt(totalCost)} | Current value: ${fmt(totalValue)} | Return: ${totalGainPct}%\n\nGive concise, confident, actionable advice. Use dollar figures. Be honest about risks. Speak like a knowledgeable collector friend. Under 200 words.`;
+      const trendsCtx = trendingMovements.map(t => `${t.name}: current price ${fmt(t.price)} (${t.change >= 0 ? '+' : ''}${t.change}% ${t.trend === 'up' ? '📈' : '📉'})`).join("\n");
+      
+      const system = `You are Kartis, the client's premium sports card financial advisor. Your sole purpose is to analyze the market, player performance/news, market trends, and the client's portfolio to tell them exactly when to BUY, SELL, or HOLD. You do all the analytical work and give clear, decisive instructions so the client does not have to think.
+
+Client's Active Portfolio:
+${ctx || "Empty portfolio"}
+Total Invested: ${fmt(totalCost)} | Current Value: ${fmt(totalValue)} | Return: ${totalGainPct}%
+
+Current Market Trends:
+${trendsCtx}
+
+Instructions:
+- Take all portfolio details and current market trends, news, and pricing into account.
+- Act as a decisive financial advisor. Tell the client exactly when to BUY, SELL, or HOLD specific cards in their portfolio or watchlists. Do not give generic or passive advice.
+- When suggesting actions, prioritize the client's risk management and ROI maximization.
+- Keep responses concise, direct, and under 200 words. Speak like a professional card fund manager. Use bold headings and clean formatting.`;
+
       const reply = await callChatGPT(newHistory.map((m) => ({ role: m.role, content: m.content })), system);
       const finalHistory = [...newHistory, { role: "assistant", content: reply }];
       setChatMessages(finalHistory);
@@ -1475,17 +1567,123 @@ export default function App() {
 
   const handleTrendingClick = (item) => {
     setMarketQuery(item.query);
-    runMarketAnalysis(item.query);
+    runMarketSearchWithQuery(item.query);
   };
 
-  const runMarketAnalysis = async (queryToAnalyze) => {
-    const q = queryToAnalyze || marketQuery;
-    if (!q.trim() || marketLoading) return;
+  const runMarketSearchWithQuery = async (queryStr) => {
+    const q = queryStr || marketQuery;
+    if (!q.trim() || marketSearchLoading) return;
+    setMarketSearchLoading(true);
+    setMarketSearchResults([]);
+    setMarketSearchError("");
+    setMarketResult("");
+    setAnalyzedCard(null);
+    try {
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(q)}`);
+      if (searchRes === "__INVALID_KEY__") {
+        setMarketSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+        return;
+      }
+      if (searchRes === "__QUOTA_EXCEEDED__") {
+        setMarketSearchError("CardSight AI rate limit exceeded.");
+        return;
+      }
+      const results = searchRes?.results || searchRes?.data;
+      if (searchRes && Array.isArray(results) && results.length > 0) {
+        setMarketSearchResults(results.slice(0, 8));
+      } else {
+        setMarketSearchError("No matching cards found. Try a different query.");
+      }
+    } catch (e) {
+      console.warn("CardSight catalog search failed:", e);
+      setMarketSearchError("Search failed. Please try again.");
+    } finally {
+      setMarketSearchLoading(false);
+    }
+  };
+
+  const runMarketAnalysisForCard = async (card) => {
+    if (marketLoading) return;
     setMarketLoading(true);
     setMarketResult("");
+    setAnalyzedCard(card);
     try {
-      const system = `You are a sports card market analyst. Give detailed analysis: current price ranges, trend direction, key value drivers, PSA 9 vs 10 grade premium spread, and a clear BUY / HOLD / SELL recommendation with reasoning. Be specific with numbers. Under 250 words.`;
-      const result = await callChatGPT([{ role: "user", content: `Analyze the sports card market for: ${q}` }], system);
+      let apiContext = "";
+      
+      // Step 1: Fetch pricing
+      let pricingData = null;
+      try {
+        pricingData = await callCardSightAPI(`/v1/pricing/${card.id}`);
+      } catch (e) {
+        console.warn("Pricing fetch failed for market analysis:", e);
+      }
+      
+      // Step 2: Fetch marketplace
+      let marketData = null;
+      try {
+        marketData = await callCardSightAPI(`/v1/marketplace/${card.id}`);
+      } catch (e) {
+        console.warn("Marketplace fetch failed for market analysis:", e);
+      }
+      
+      const rawSales = pricingData?.raw?.records || [];
+      const gradedSales = Array.isArray(pricingData?.graded) 
+        ? pricingData.graded 
+        : (pricingData?.graded?.records || []);
+      const allComps = [...rawSales, ...gradedSales].slice(0, 10);
+      
+      const compsList = allComps.map(s => {
+        const price = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+        return `- Date: ${s.date || s.sold_date || 'Recent'}, Price: ${fmt(price)}, Grade: ${s.grade || 'Raw'}, Source: ${s.source || 'eBay'}`;
+      }).join("\n");
+      
+      const activeListings = (marketData?.raw?.records || (Array.isArray(marketData?.raw) ? marketData.raw : [])).slice(0, 5);
+      const activesList = activeListings.map(a => {
+        const price = a.price !== undefined ? a.price : (a.price_usd !== undefined ? a.price_usd : a.value);
+        return `- Active Listing: ${a.title || card.name}, Price: ${fmt(price)}`;
+      }).join("\n");
+      
+      apiContext = `
+Card Details from Catalog API:
+- Name: ${card.name || card.player}
+- Year: ${card.year}
+- Set/Product: ${card.releaseName || ''} ${card.setName || ''}
+- Parallel/Variation: ${card.parallelName || 'Base'}
+- Sport: ${detectSport(card.name, card.releaseName, card.setName)}
+
+Real-Time Market Comps:
+${compsList || "No completed sales records found."}
+
+Active Listings:
+${activesList || "No active listings found."}
+`;
+
+      const system = `You are an expert sports card market analyst and financial advisor.
+You MUST analyze the card using the real-time CardSight AI API data provided below.
+In addition to the API data, you must integrate recent player news, performance trends (injuries, hot streaks, trades, college stats vs pro projection), and overall market trends for the sport and set.
+To prevent hallucinating card values, you must strictly align your advice with the actual pricing comps and active listings provided in the Live API Data. Do not invent or assume sales prices or active listings that contradict the provided data. If the data is empty or indicates the card does not exist yet, base your advice on draft expectations, comparable player trends, and state this clearly.
+
+You MUST format your output using EXACTLY the following five bold headings (no variations, no extra headings, no missing headings):
+**1. Current Price Ranges & Grade Premium Spreads**
+[Analysis of price ranges, raw vs graded spread, and comps here]
+
+**2. Trend Direction**
+[Analysis of recent transaction dates and price movement directions here]
+
+**3. Player News & Latest Performance Context**
+[Analysis of recent player performance, injuries, stats, projection, and news here]
+
+**4. Key Value Drivers**
+[Analysis of set popularity, rookie card status, print runs, and scarcity here]
+
+**5. Recommendation & Justification**
+[Clear BUY / HOLD / SELL recommendation with reasoning based on the above sections here]
+
+Keep the analysis professional, specific with numbers, and under 250 words.`;
+      
+      const prompt = `Analyze the sports card market for: "${card.year} ${card.name} ${card.releaseName} ${card.parallelName}"\n\nLive API Data:\n${apiContext}`;
+      
+      const result = await callChatGPT([{ role: "user", content: prompt }], system);
       setMarketResult(result);
     } catch (err) {
       setMarketResult(`⚠️ Failed to fetch analysis: ${err.message}`);
@@ -1990,13 +2188,37 @@ export default function App() {
         {tab === "Market" && (
           <div>
             <div style={{ ...S.label, marginBottom: 4 }}>Market Intelligence</div>
-            <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Enter any player, card, or set for a buy/hold/sell analysis.</div>
+            <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Enter any player, card, or set to search the database and run a buy/hold/sell analysis.</div>
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-              <input value={marketQuery} onChange={(e) => setMarketQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMarketAnalysis()} placeholder="e.g. 2018 Luka Dončić Prizm PSA 10" style={{ ...S.input }} />
-              <button onClick={runMarketAnalysis} disabled={marketLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "10px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketLoading ? 0.5 : 1 }}>
-                {marketLoading ? "…" : "Analyze"}
+              <input value={marketQuery} onChange={(e) => setMarketQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMarketSearchWithQuery()} placeholder="e.g. 2018 Luka Dončić Prizm PSA 10" style={{ ...S.input }} />
+              <button onClick={() => runMarketSearchWithQuery()} disabled={marketSearchLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "10px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketSearchLoading ? 0.5 : 1 }}>
+                {marketSearchLoading ? "Searching..." : "Search"}
               </button>
             </div>
+
+            {marketSearchError && (
+              <div style={{ color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433", marginBottom: 16 }}>
+                {marketSearchError}
+              </div>
+            )}
+
+            {marketSearchResults.length > 0 && (
+              <div style={{ ...S.card, borderColor: "#cbd5e1", marginBottom: 20, background: "#f8fafc" }}>
+                <div style={{ ...S.label, marginBottom: 8 }}>Matching Cards (Select one to analyze)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 220, overflowY: "auto" }}>
+                  {marketSearchResults.map((card) => (
+                    <div key={card.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: S.text, marginRight: 10 }}>
+                        {card.year} {card.name || card.player} {card.releaseName || ''} {card.setName || ''} {card.parallelName ? `(${card.parallelName})` : ''}
+                      </span>
+                      <button onClick={() => { runMarketAnalysisForCard(card); setMarketSearchResults([]); }} disabled={marketLoading} style={{ background: S.accent, color: "#ffffff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: marketLoading ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                        {marketLoading && analyzedCard?.id === card.id ? "Analyzing..." : "Analyze"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
               {loadingTrendingPrices ? (
@@ -2091,7 +2313,11 @@ export default function App() {
                   ? <InvalidKeyBanner />
                   : (
                     <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
-                      <div style={{ ...S.label, color: S.accent, marginBottom: 12 }}>Analysis: {marketQuery}</div>
+                      <div style={{ ...S.label, color: S.accent, marginBottom: 12 }}>
+                        Analysis: {analyzedCard 
+                          ? `${analyzedCard.year} ${analyzedCard.name || analyzedCard.player} ${analyzedCard.releaseName || ''} ${analyzedCard.setName || ''} ${analyzedCard.parallelName ? `(${analyzedCard.parallelName})` : ''}` 
+                          : marketQuery}
+                      </div>
                       <div style={{ fontSize: 14, lineHeight: 1.8, color: "#475569" }}>{renderMarkdown(marketResult)}</div>
                     </div>
                   )
