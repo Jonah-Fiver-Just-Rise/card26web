@@ -23,12 +23,12 @@ class _MarketTabState extends State<MarketTab> {
   bool _loadingTrendingPrices = false;
 
   List<Map<String, dynamic>> _trendingMovements = [
-    { "id": "15cd493d-1dbe-4a04-ba3f-ee873b2fd91d", "name": "Wembanyama RC 2023", "query": "2023 Victor Wembanyama Prizm RC", "price": 625.00, "change": 14.2, "trend": "up" },
-    { "id": "9551abef-ed4b-4662-bcd3-181549e704b2", "name": "Shohei Ohtani Chrome Auto", "query": "2018 Shohei Ohtani Bowman Chrome Auto", "price": 1420.00, "change": 8.5, "trend": "up" },
-    { "id": "b2189857-ba5d-4552-9bef-592ed1da57c8", "name": "Patrick Mahomes Prizm", "query": "2017 Patrick Mahomes Prizm RC", "price": 2850.00, "change": -2.4, "trend": "down" },
-    { "id": "08271afe-a16d-444f-8366-a4230acce486", "name": "Caitlin Clark RC", "query": "2024 Caitlin Clark Topps Chrome RC", "price": 310.00, "change": 22.1, "trend": "up" },
-    { "id": "403a7398-4b20-43c0-8cdb-cd78cfc8c78a", "name": "Luka Dončić Prizm PSA 10", "query": "2018 Luka Dončić Prizm PSA 10", "price": 780.00, "change": 5.8, "trend": "up" },
-    { "id": "73a98f95-1970-4ef3-806c-3bc321882d2c", "name": "Connor McDavid Young Guns", "query": "2015 Connor McDavid Upper Deck Young Guns", "price": 1250.00, "change": -1.8, "trend": "down" }
+    { "id": "2d14868b-f060-4830-85c8-44e1e9560b15", "name": "Wembanyama Prizm RC", "query": "2023 Panini Panini Prizm Draft Picks Victor Wembanyama (Base Set)", "price": 40.00, "change": 5.2, "trend": "up" },
+    { "id": "9551abef-ed4b-4662-bcd3-181549e704b2", "name": "Shohei Ohtani Chrome Auto", "query": "2018 Bowman Chrome Shohei Ohtani RC Rookie #1 Angels", "price": 1420.00, "change": 8.5, "trend": "up" },
+    { "id": "b2189857-ba5d-4552-9bef-592ed1da57c8", "name": "Patrick Mahomes Prizm", "query": "2017 Panini Prizm - Rookies Patrick Mahomes II #269 Silver Prizm (RC)", "price": 2850.00, "change": -2.4, "trend": "down" },
+    { "id": "08271afe-a16d-444f-8366-a4230acce486", "name": "Caitlin Clark Select RC", "query": "2024 Caitlin Clark (Panini Select WNBA Base Set)", "price": 92.00, "change": 12.1, "trend": "up" },
+    { "id": "403a7398-4b20-43c0-8cdb-cd78cfc8c78a", "name": "Luka Doncic Prizm RC", "query": "2018-19 Panini Prizm Luka Doncic Rookie Card #280", "price": 150.00, "change": 5.8, "trend": "up" },
+    { "id": "9106f332-0bad-4507-8744-8cd5872b2703", "name": "Connor Bedard Young Guns", "query": "2023-24 Connor Bedard (Upper Deck Base Set)", "price": 225.00, "change": 14.5, "trend": "up" }
   ];
 
   @override

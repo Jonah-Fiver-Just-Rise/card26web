@@ -124,12 +124,12 @@ class _AdvisorTabState extends State<AdvisorTab> {
       final double totalGainPct = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : 0.0;
 
       final trendsStr = [
-        "Wembanyama RC 2023: current price \$625.0 (+14.2% 📈)",
+        "Wembanyama Prizm RC: current price \$40.0 (+5.2% 📈)",
         "Shohei Ohtani Chrome Auto: current price \$1420.0 (+8.5% 📈)",
         "Patrick Mahomes Prizm: current price \$2850.0 (-2.4% 📉)",
-        "Caitlin Clark RC: current price \$310.0 (+22.1% 📈)",
-        "Luka Dončić Prizm PSA 10: current price \$780.0 (+5.8% 📈)",
-        "Connor McDavid Young Guns: current price \$1250.0 (-1.8% 📉)",
+        "Caitlin Clark Select RC: current price \$92.0 (+12.1% 📈)",
+        "Luka Doncic Prizm RC: current price \$150.0 (+5.8% 📈)",
+        "Connor Bedard Young Guns: current price \$225.0 (+14.5% 📈)",
       ].join("\n");
 
       final systemPrompt = """
