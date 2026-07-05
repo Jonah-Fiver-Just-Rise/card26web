@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../core/constants/app_colors.dart';
 import '../../core/models/watchlist_model.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/card_thumbnail.dart';
 import '../../core/constants/app_constants.dart';
 
 class WatchlistTab extends StatefulWidget {
@@ -123,7 +124,7 @@ class _WatchlistTabState extends State<WatchlistTab> {
     try {
       for (var item in _latestItems) {
         final qStr = "${item.year} ${item.player} ${item.set}";
-        final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(qStr)}");
+        final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(qStr)}&type=card");
         final searchRes = await http.get(
           searchUri,
           headers: {
@@ -367,37 +368,50 @@ class _WatchlistTabState extends State<WatchlistTab> {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                    child: Row(
                                       children: [
-                                        Row(
-                                          children: [
-                                            Text(
-                                              "${item.year} ${item.player}",
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                                            ),
-                                            if (atTarget) ...[
-                                              const SizedBox(width: 8),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: AppColors.gainGreen.withOpacity(0.1),
-                                                  borderRadius: BorderRadius.circular(4),
-                                                ),
-                                                child: const Text("BUY ZONE", style: TextStyle(fontSize: 9, color: AppColors.gainGreen, fontWeight: FontWeight.bold)),
+                                        CardThumbnail(
+                                          imageUrl: item.imageUrl,
+                                          catalogId: item.catalogId,
+                                          width: 42,
+                                          height: 52,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Text(
+                                                    "${item.year} ${item.player}",
+                                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                                  ),
+                                                  if (atTarget) ...[
+                                                    const SizedBox(width: 8),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: AppColors.gainGreen.withOpacity(0.1),
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: const Text("BUY ZONE", style: TextStyle(fontSize: 9, color: AppColors.gainGreen, fontWeight: FontWeight.bold)),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                "${item.set} · ${item.grade} · ${item.sport}",
+                                                style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                "Target: ${_formatCurrency(item.targetBuy)}",
+                                                style: const TextStyle(color: AppColors.gold, fontSize: 11),
                                               ),
                                             ],
-                                          ],
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          "${item.set} · ${item.grade} · ${item.sport}",
-                                          style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          "Target: ${_formatCurrency(item.targetBuy)}",
-                                          style: const TextStyle(color: AppColors.gold, fontSize: 11),
+                                          ),
                                         ),
                                       ],
                                     ),

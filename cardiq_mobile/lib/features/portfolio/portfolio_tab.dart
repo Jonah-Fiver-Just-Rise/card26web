@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../core/constants/app_colors.dart';
 import '../../core/models/card_model.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/card_thumbnail.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/notification_service.dart';
 
@@ -30,6 +31,8 @@ class _PortfolioTabState extends State<PortfolioTab> {
   bool _autoPricing = false;
   bool _searchingCatalog = false;
   List<dynamic> _searchResults = [];
+  String? _selectedCatalogId;
+  String? _selectedImageUrl;
 
   String _formatCurrency(double amount) {
     final absAmount = amount.abs();
@@ -89,7 +92,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
     final cardSightKey = AppConstants.cardSightApiKey;
     if (cardSightKey != "YOUR_CARDSIGHT_API_KEY" && cardSightKey.isNotEmpty) {
       try {
-        final uri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(query)}");
+        final uri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(query)}&type=card&take=10");
         final res = await http.get(
           uri,
           headers: {
@@ -103,101 +106,80 @@ class _PortfolioTabState extends State<PortfolioTab> {
           if (data != null) {
             final list = data['results'] ?? data['data'];
             if (list != null && list is List) {
-              final parsedPromises = list.take(5).map((item) async {
+              final topItems = list.take(10).toList();
+              final cardIds = topItems.map((item) => item['id']).where((id) => id != null).toList();
+
+              final Map<String, double> pricingMap = {};
+              try {
+                final pricingBulkUri = Uri.parse("https://api.cardsight.ai/v1/pricing/");
+                final bulkRes = await http.post(
+                  pricingBulkUri,
+                  headers: {
+                    "X-API-Key": cardSightKey,
+                    "Content-Type": "application/json",
+                  },
+                  body: jsonEncode({
+                    "card_ids": cardIds,
+                    "period": "all",
+                    "listing_type": "both"
+                  }),
+                ).timeout(const Duration(seconds: 8));
+
+                if (bulkRes.statusCode == 200) {
+                  final bulkData = jsonDecode(bulkRes.body);
+                  if (bulkData != null && bulkData['results'] is List) {
+                    for (var r in bulkData['results']) {
+                      if (r['success'] == true && r['data'] != null) {
+                        final pricingData = r['data'];
+                        final rawSales = pricingData['raw']?['records'] ?? [];
+                        final gradedSales = pricingData['graded'] ?? [];
+                        final List<dynamic> sales = [...rawSales, ...gradedSales];
+                        double avgPrice = 0.0;
+                        if (pricingData['averagePrice'] != null) {
+                          avgPrice = double.tryParse(pricingData['averagePrice'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                        } else if (pricingData['average'] != null) {
+                          avgPrice = double.tryParse(pricingData['average'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                        } else if (sales.isNotEmpty) {
+                          double total = 0.0;
+                          int count = 0;
+                          for (var s in sales) {
+                            final p = s['price'] ?? s['price_usd'] ?? s['value'];
+                            if (p != null) {
+                              final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                              if (parsedVal > 0) {
+                                total += parsedVal;
+                                count++;
+                              }
+                            }
+                          }
+                          if (count > 0) avgPrice = total / count;
+                        }
+                        pricingMap[r['card_id']] = avgPrice;
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                debugPrint("Failed to fetch bulk pricing: $e");
+              }
+
+              final parsed = topItems.map((item) {
                 final cardId = item['id'];
-                double price = 0.0;
-                try {
-                  final pricingUri = Uri.parse("https://api.cardsight.ai/v1/pricing/$cardId");
-                  final pricingRes = await http.get(
-                    pricingUri,
-                    headers: {
-                      "X-API-Key": cardSightKey,
-                      "Content-Type": "application/json",
-                    },
-                  ).timeout(const Duration(seconds: 4));
-                  
-                  if (pricingRes.statusCode == 200) {
-                    final pricingData = jsonDecode(pricingRes.body);
-                    if (pricingData != null) {
-                      final rawSales = pricingData['raw']?['records'] ?? [];
-                      final gradedSales = pricingData['graded'] ?? [];
-                      final List<dynamic> sales = [...rawSales, ...gradedSales];
-                      double avgPrice = 0.0;
-                      if (pricingData['averagePrice'] != null) {
-                        avgPrice = double.tryParse(pricingData['averagePrice'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                      } else if (pricingData['average'] != null) {
-                        avgPrice = double.tryParse(pricingData['average'].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                      } else if (sales.isNotEmpty) {
-                        double total = 0.0;
-                        int count = 0;
-                        for (var s in sales) {
-                          final p = s['price'] ?? s['price_usd'] ?? s['value'];
-                          if (p != null) {
-                            final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                            if (parsedVal > 0) {
-                              total += parsedVal;
-                              count++;
-                            }
-                          }
-                        }
-                        if (count > 0) avgPrice = total / count;
-                      }
-                      price = avgPrice;
-                    }
-                  }
-                } catch (e) {
-                  debugPrint("Failed to fetch price for $cardId: $e");
-                }
-                
-                if (price == 0.0) {
-                  try {
-                    final marketUri = Uri.parse("https://api.cardsight.ai/v1/marketplace/$cardId");
-                    final marketRes = await http.get(
-                      marketUri,
-                      headers: {
-                        "X-API-Key": cardSightKey,
-                        "Content-Type": "application/json",
-                      },
-                    ).timeout(const Duration(seconds: 4));
-                    
-                    if (marketRes.statusCode == 200) {
-                      final marketData = jsonDecode(marketRes.body);
-                      if (marketData != null && marketData['raw']?['records'] != null) {
-                        final records = marketData['raw']['records'] as List;
-                        double total = 0.0;
-                        int count = 0;
-                        for (var r in records) {
-                          final p = r['price'] ?? r['price_usd'] ?? r['value'];
-                          if (p != null) {
-                            final parsedVal = double.tryParse(p.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-                            if (parsedVal > 0) {
-                              total += parsedVal;
-                              count++;
-                            }
-                          }
-                        }
-                        if (count > 0) price = total / count;
-                      }
-                    }
-                  } catch (e) {
-                    debugPrint("Failed to fetch marketplace price for $cardId: $e");
-                  }
-                }
-                
+                final price = pricingMap[cardId] ?? 0.0;
                 final releaseName = item['releaseName'] ?? '';
                 final setName = item['setName'] ?? item['set'] ?? '';
                 final parallelName = item['parallelName'] ?? '';
                 final name = item['name'] ?? item['player'] ?? '';
-                
                 final detected = _detectSport(name, releaseName, setName);
-                
+
                 String setDesc = "$releaseName $setName";
                 if (parallelName.isNotEmpty) {
                   setDesc += " ($parallelName)";
                 }
                 setDesc = setDesc.trim();
-                
+
                 return {
+                  'id': cardId,
                   'player': name,
                   'year': int.tryParse(item['year']?.toString() ?? '') ?? DateTime.now().year,
                   'set': setDesc.isNotEmpty ? setDesc : setName,
@@ -205,8 +187,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
                   'estimatedPrice': price,
                 };
               }).toList();
-              
-              final parsed = await Future.wait(parsedPromises);
+
               setModalState(() {
                 _searchResults = parsed;
                 _searchingCatalog = false;
@@ -532,10 +513,13 @@ class _PortfolioTabState extends State<PortfolioTab> {
                                   _playerController.text = item['player'];
                                   _yearController.text = item['year'].toString();
                                   _setController.text = item['set'];
-                                  _valueController.text = item['estimatedPrice'].toString();
-                                  _purchaseController.text = item['estimatedPrice'].toString();
+                                  final estVal = (item['estimatedPrice'] as num).toDouble();
+                                  _valueController.text = estVal > 0 ? estVal.toStringAsFixed(0) : "";
+                                  _purchaseController.text = estVal > 0 ? estVal.toStringAsFixed(0) : "";
                                   _selectedSport = item['sport'];
                                   _gradeController.text = "Raw";
+                                  _selectedCatalogId = item['id'];
+                                  _selectedImageUrl = item['imageUrl'];
                                   _searchResults = [];
                                   _searchController.clear();
                                 });
@@ -551,7 +535,7 @@ class _PortfolioTabState extends State<PortfolioTab> {
                     TextField(controller: _playerController, decoration: const InputDecoration(labelText: "Player Name")),
                     const SizedBox(height: 10),
                     Row(
-                      children: [
+                       children: [
                         Expanded(child: TextField(controller: _yearController, decoration: const InputDecoration(labelText: "Year"), keyboardType: TextInputType.number)),
                         const SizedBox(width: 10),
                         Expanded(
@@ -604,6 +588,8 @@ class _PortfolioTabState extends State<PortfolioTab> {
                                   'currentValue': double.tryParse(_valueController.text) ?? 0.0,
                                   'quantity': int.tryParse(_quantityController.text) ?? 1,
                                   'addedAt': DateTime.now().toIso8601String(),
+                                  'catalogId': _selectedCatalogId,
+                                  'imageUrl': _selectedImageUrl,
                                 });
                                 _playerController.clear();
                                 _yearController.clear();
@@ -612,6 +598,8 @@ class _PortfolioTabState extends State<PortfolioTab> {
                                 _purchaseController.clear();
                                 _valueController.clear();
                                 _quantityController.text = "1";
+                                _selectedCatalogId = null;
+                                _selectedImageUrl = null;
                                 Navigator.pop(context);
                               },
                               style: ElevatedButton.styleFrom(
@@ -802,44 +790,57 @@ class _PortfolioTabState extends State<PortfolioTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                      child: Row(
                                         children: [
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  "${qty}x ${card.year} ${card.player}",
-                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              if (pct >= 30.0) ...[
-                                                const SizedBox(width: 6),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: AppColors.lossRed.withOpacity(0.15),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                    border: Border.all(color: AppColors.lossRed.withOpacity(0.3)),
-                                                  ),
-                                                  child: const Text(
-                                                    "SELL PEAK",
-                                                    style: TextStyle(
-                                                      color: AppColors.lossRed,
-                                                      fontSize: 8,
-                                                      fontWeight: FontWeight.bold,
-                                                      letterSpacing: 0.5,
+                                          CardThumbnail(
+                                            imageUrl: card.imageUrl,
+                                            catalogId: card.catalogId,
+                                            width: 42,
+                                            height: 52,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        "${qty}x ${card.year} ${card.player}",
+                                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
                                                     ),
-                                                  ),
+                                                    if (pct >= 30.0) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: AppColors.lossRed.withOpacity(0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                          border: Border.all(color: AppColors.lossRed.withOpacity(0.3)),
+                                                        ),
+                                                        child: const Text(
+                                                          "SELL PEAK",
+                                                          style: TextStyle(
+                                                            color: AppColors.lossRed,
+                                                            fontSize: 8,
+                                                            fontWeight: FontWeight.bold,
+                                                            letterSpacing: 0.5,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  "${card.set} · ${card.grade} · ${card.sport}",
+                                                  style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
                                                 ),
                                               ],
-                                            ],
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            "${card.set} · ${card.grade} · ${card.sport}",
-                                            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                            ),
                                           ),
                                         ],
                                       ),

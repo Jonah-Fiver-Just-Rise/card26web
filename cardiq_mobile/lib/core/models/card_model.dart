@@ -11,6 +11,8 @@ class CardModel {
   final double currentValue;
   final int quantity;
   final String addedAt;
+  final String? imageUrl;
+  final String? catalogId;
 
   CardModel({
     required this.id,
@@ -23,6 +25,8 @@ class CardModel {
     required this.currentValue,
     required this.quantity,
     required this.addedAt,
+    this.imageUrl,
+    this.catalogId,
   });
 
   factory CardModel.fromFirestore(DocumentSnapshot doc) {
@@ -38,6 +42,8 @@ class CardModel {
       currentValue: (data['currentValue'] ?? 0.0).toDouble(),
       quantity: data['quantity'] ?? 1,
       addedAt: data['addedAt'] ?? '',
+      imageUrl: data['imageUrl'],
+      catalogId: data['catalogId'],
     );
   }
 
@@ -52,6 +58,8 @@ class CardModel {
       'currentValue': currentValue,
       'quantity': quantity,
       'addedAt': addedAt,
+      'imageUrl': imageUrl,
+      'catalogId': catalogId,
     };
   }
 }

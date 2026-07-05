@@ -11,6 +11,8 @@ class WatchlistModel {
   final double currentEst;
   final bool alert;
   final String addedAt;
+  final String? imageUrl;
+  final String? catalogId;
 
   WatchlistModel({
     required this.id,
@@ -23,6 +25,8 @@ class WatchlistModel {
     required this.currentEst,
     required this.alert,
     required this.addedAt,
+    this.imageUrl,
+    this.catalogId,
   });
 
   factory WatchlistModel.fromFirestore(DocumentSnapshot doc) {
@@ -38,6 +42,8 @@ class WatchlistModel {
       currentEst: (data['currentEst'] ?? 0.0).toDouble(),
       alert: data['alert'] ?? false,
       addedAt: data['addedAt'] ?? '',
+      imageUrl: data['imageUrl'],
+      catalogId: data['catalogId'],
     );
   }
 
@@ -52,6 +58,8 @@ class WatchlistModel {
       'currentEst': currentEst,
       'alert': alert,
       'addedAt': addedAt,
+      'imageUrl': imageUrl,
+      'catalogId': catalogId,
     };
   }
 }

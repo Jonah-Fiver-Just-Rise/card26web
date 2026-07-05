@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../widgets/glass_card.dart';
+import '../../widgets/card_thumbnail.dart';
 
 class MarketTab extends StatefulWidget {
   const MarketTab({super.key});
@@ -250,7 +251,7 @@ class _MarketTabState extends State<MarketTab> {
         throw Exception("CardSight AI API key is not configured.");
       }
 
-      final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(q)}");
+      final searchUri = Uri.parse("https://api.cardsight.ai/v1/catalog/search?q=${Uri.encodeComponent(q)}&type=card");
       final searchRes = await http.get(
         searchUri,
         headers: {
@@ -649,7 +650,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.""";
                 crossAxisCount: 2,
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
-                childAspectRatio: 2.2,
+                childAspectRatio: 2.0,
               ),
               itemCount: _profitGainingMovements.length,
               itemBuilder: (context, index) {
@@ -661,51 +662,64 @@ Keep the analysis professional, specific with numbers, and under 250 words.""";
                     _runMarketSearch(item['query']);
                   },
                   child: GlassCard(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     border: Border.all(
                       color: isUp ? AppColors.gainGreen.withOpacity(0.2) : AppColors.lossRed.withOpacity(0.2),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Row(
                       children: [
-                        Text(
-                          item['name'],
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        CardThumbnail(
+                          imageUrl: item['imageUrl'],
+                          catalogId: item['id'],
+                          width: 38,
+                          height: 48,
                         ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              "\$${item['price'].toStringAsFixed(0)}",
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppColors.gold,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: isUp ? AppColors.gainGreen.withOpacity(0.1) : AppColors.lossRed.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                "${isUp ? '+' : ''}${item['change']}%",
-                                style: TextStyle(
-                                  fontSize: 10,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                item['name'],
+                                style: const TextStyle(
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: isUp ? AppColors.gainGreen : AppColors.lossRed,
+                                  color: AppColors.textPrimary,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    "\$${item['price'].toStringAsFixed(0)}",
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.gold,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isUp ? AppColors.gainGreen.withOpacity(0.1) : AppColors.lossRed.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      "${isUp ? '+' : ''}${item['change']}%",
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: isUp ? AppColors.gainGreen : AppColors.lossRed,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),

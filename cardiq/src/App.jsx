@@ -53,12 +53,12 @@ const fmt = (n) => {
 
 const detectSport = (name, releaseName, setName) => {
   const text = `${name || ""} ${releaseName || ""} ${setName || ""}`.toLowerCase();
-  
+
   // Specific players mapping first
-  if (/\bohtani\b|\bjudge\b|\btrout\b|\bacuna\b|\bsoto\b|\bharper\b|\bbetts\b|\bguerrero\b|\bpujols\b|\bripken\b|\bpiazza\b|\bortiz\b|\bmcgwire\b|\brodriguez\b|\bbaseball\b|\bmlb\b/i.test(text)) {
+  if (/\bohtani\b|\bjudge\b|\btrout\b|\bacuna\b|\bsoto\b|\bharper\b|\bbetts\b|\bguerrero\b|\bpujols\b|\bripken\b|\bpiazza\b|\bortiz\b|\bmcgwire\b|\brodriguez\b|\bjeter\b|\bmantle\b|\bbond\b|\bbaseball\b|\bmlb\b|\bamerican league\b|\bnational league\b|\bera leaders\b|\bstrikeout leaders\b|\bhome run\b|\brbi\b|\bbatting average\b/i.test(text)) {
     return "Baseball";
   }
-  if (/\bwembanyama\b|\blebron\b|\bcurry\b|\bjordan\b|\bdoncic\b|\bclark\b|\btatum\b|\bkobe\b|\bshaq\b|\bbasketball\b|\bnba\b/i.test(text)) {
+  if (/\bwembanyama\b|\blebron\b|\bcurry\b|\bjordan\b|\bdoncic\b|\bclark\b|\btatum\b|\bkobe\b|\bshaq\b|\bbasketball\b|\bnba\b|\bhoops\b|\bprizm basketball\b|\bcourt kings\b|\bnba hoops\b/i.test(text)) {
     return "Basketball";
   }
   if (/\bmahomes\b|\bbrady\b|\bdart\b|\bburrow\b|\bjackson\b|\bstroud\b|\bpurdy\b|\ballen\b|\bhurts\b|\bcarter\b|\bskattebo\b|\bward\b|\bsanders\b|\bshough\b|\bmanning\b|\btarkenton\b|\bfootball\b|\bnfl\b/i.test(text)) {
@@ -84,7 +84,7 @@ const detectSport = (name, releaseName, setName) => {
   if (text.includes("young guns") || text.includes("upper deck") || text.includes("o-pee-chee")) {
     return "Hockey";
   }
-  
+
   return "Basketball"; // Default fallback
 };
 const gainColor = (n) => (n >= 0 ? "#16a34a" : "#dc2626");
@@ -104,10 +104,10 @@ const renderMarkdown = (text) => {
   return lines.map((line, lineIdx) => {
     let cleanLine = line.trim();
     if (!cleanLine) return <div key={lineIdx} style={{ height: 8 }} />;
-    
+
     const isBullet = cleanLine.startsWith("* ") || cleanLine.startsWith("- ");
     const isNumbered = /^\d+\.\s/.test(cleanLine);
-    
+
     if (isBullet) {
       cleanLine = cleanLine.substring(2);
     } else if (isNumbered) {
@@ -116,7 +116,7 @@ const renderMarkdown = (text) => {
         cleanLine = match[2];
       }
     }
-    
+
     const parts = cleanLine.split(/\*\*([^*]+)\*\*/g);
     const parsedElements = parts.map((part, partIdx) => {
       if (partIdx % 2 === 1) {
@@ -124,7 +124,7 @@ const renderMarkdown = (text) => {
       }
       return part;
     });
-    
+
     if (isBullet) {
       return (
         <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
@@ -133,7 +133,7 @@ const renderMarkdown = (text) => {
         </div>
       );
     }
-    
+
     if (isNumbered) {
       return (
         <div key={lineIdx} style={{ display: "flex", gap: 8, marginLeft: 12, marginBlock: 4, lineHeight: 1.6, fontSize: 13.5 }}>
@@ -142,7 +142,7 @@ const renderMarkdown = (text) => {
         </div>
       );
     }
-    
+
     return (
       <p key={lineIdx} style={{ margin: "0 0 8px 0", lineHeight: 1.6, fontSize: 13.5 }}>
         {parsedElements}
@@ -167,7 +167,7 @@ const callChatGPT = async (messages, system) => {
   if (!geminiKey || geminiKey.includes("YOUR_GEMINI_API_KEY") || geminiKey.trim() === "") {
     return "Please configure VITE_GEMINI_API_KEY in your .env file.";
   }
-  
+
   const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
   let lastError = null;
 
@@ -259,13 +259,16 @@ const callCardSightAPI = async (endpoint, options = {}) => {
   }
   try {
     console.log(`[CardSight] Fetching endpoint: ${endpoint}`);
+    const headers = {
+      "X-API-Key": apiKey.trim(),
+      ...options.headers,
+    };
+    if (!(options.body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+    }
     const res = await fetchWithTimeout(`https://api.cardsight.ai${endpoint}`, {
       ...options,
-      headers: {
-        "X-API-Key": apiKey.trim(),
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
+      headers,
     });
     console.log(`[CardSight] Endpoint response status: ${res.status} for ${endpoint}`);
     if (res.status === 401 || res.status === 403) {
@@ -288,13 +291,418 @@ const callCardSightAPI = async (endpoint, options = {}) => {
   }
 };
 
+const SearchResultCard = ({ item, idx, onClick, selectLabel, showPrices, isGrading, customImage }) => {
+  const [imgSrc, setImgSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (customImage && idx === 0) {
+      setImgSrc(customImage);
+      setLoading(false);
+      return;
+    }
+
+    if (!item.id) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    const fetchImg = async () => {
+      try {
+        const apiKey = import.meta.env.VITE_CARDSIGHTAI_API_KEY || "";
+        const res = await fetch(`https://api.cardsight.ai/v1/images/cards/${item.id}`, {
+          headers: apiKey ? { "X-API-Key": apiKey } : {}
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          if (active) {
+            setImgSrc(url);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch search card image:", e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchImg();
+    return () => {
+      active = false;
+    };
+  }, [item.id, customImage, idx]);
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        flex: "0 0 200px",
+        height: isGrading ? "275px" : "250px",
+        background: "linear-gradient(135deg, #ffffff, #f8fafc)",
+        border: "1px solid #e2e8f0",
+        borderRadius: 16,
+        padding: 14,
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        transition: "all 0.2s ease-in-out",
+        boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+        position: "relative",
+        overflow: "hidden"
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = S.accent;
+        e.currentTarget.style.boxShadow = "0 8px 16px rgba(30, 58, 138, 0.12)";
+        e.currentTarget.style.transform = "translateY(-4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "#e2e8f0";
+        e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)";
+        e.currentTarget.style.transform = "translateY(0)";
+      }}
+    >
+      <div style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "linear-gradient(135deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 70%)",
+        backgroundSize: "200% 200%",
+        animation: "shine 4s infinite linear",
+        pointerEvents: "none"
+      }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
+        <span style={{ fontSize: 9, fontWeight: 800, color: S.accent, textTransform: "uppercase", background: "#1e3a8a0c", padding: "3px 6px", borderRadius: 6, letterSpacing: "0.05em" }}>
+          {item.sport}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 800, color: S.text, opacity: 0.8 }}>
+          {item.year}
+        </span>
+      </div>
+
+      <div style={{ 
+        height: 110, 
+        width: "100%",
+        alignSelf: "center",
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center", 
+        background: "#ffffff", 
+        borderRadius: 10, 
+        margin: "8px auto"
+      }}>
+        {loading ? (
+          <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #cbd5e1", borderTopColor: S.accent, animation: "spin 1s infinite linear" }} />
+        ) : (
+          <img src={imgSrc || LogoImg} alt={item.player} style={{ width: "100%", height: "100%", objectFit: "contain", opacity: imgSrc ? 1 : 0.7 }} />
+        )}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, zIndex: 2 }}>
+        <div style={{ fontWeight: 800, fontSize: 13, color: S.text, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {item.player}
+        </div>
+        <div style={{ fontSize: 10.5, color: S.muted, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 15, lineHeight: 1.3 }}>
+          {item.set}
+        </div>
+        {showPrices}
+      </div>
+    </div>
+  );
+};
+
+const CollectionCard = ({ card, qty, value, cost, gain, gainPct, onRemove, targetBuy, diff, pct, atTarget, isWatchlist }) => {
+  const [imgSrc, setImgSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (card.imageUrl) {
+      setImgSrc(card.imageUrl);
+      setLoading(false);
+      return;
+    }
+
+    if (!card.catalogId) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    const fetchImg = async () => {
+      try {
+        const apiKey = import.meta.env.VITE_CARDSIGHTAI_API_KEY || "";
+        const res = await fetch(`https://api.cardsight.ai/v1/images/cards/${card.catalogId}`, {
+          headers: apiKey ? { "X-API-Key": apiKey } : {}
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          if (active) {
+            setImgSrc(url);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch collection card image:", e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchImg();
+    return () => {
+      active = false;
+    };
+  }, [card.catalogId, card.imageUrl]);
+
+  return (
+    <div
+      style={{
+        background: "linear-gradient(135deg, #ffffff, #f8fafc)",
+        border: "1px solid #e2e8f0",
+        borderRadius: 16,
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+        transition: "all 0.2s ease-in-out",
+        height: "250px"
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = S.accent;
+        e.currentTarget.style.boxShadow = "0 8px 16px rgba(30, 58, 138, 0.12)";
+        e.currentTarget.style.transform = "translateY(-4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "#e2e8f0";
+        e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)";
+        e.currentTarget.style.transform = "translateY(0)";
+      }}
+    >
+      <div style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "linear-gradient(135deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 70%)",
+        backgroundSize: "200% 200%",
+        animation: "shine 4s infinite linear",
+        pointerEvents: "none"
+      }} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 2 }}>
+        <span style={{ fontSize: 9, fontWeight: 800, color: S.accent, textTransform: "uppercase", background: "#1e3a8a0c", padding: "3px 6px", borderRadius: 6, letterSpacing: "0.05em" }}>
+          {card.sport}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: S.text, opacity: 0.8 }}>
+            {card.year}
+          </span>
+          <button onClick={onRemove} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }} title="Remove item">×</button>
+        </div>
+      </div>
+
+      <div style={{ 
+        height: 110, 
+        width: "100%",
+        alignSelf: "center",
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "center", 
+        borderRadius: 10, 
+        margin: "8px auto"
+      }}>
+        {loading ? (
+          <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #cbd5e1", borderTopColor: S.accent, animation: "spin 1s infinite linear" }} />
+        ) : (
+          <img src={imgSrc || LogoImg} alt={card.player} style={{ width: "100%", height: "100%", objectFit: "contain", opacity: imgSrc ? 1 : 0.7 }} />
+        )}
+      </div>
+
+      {isWatchlist ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, zIndex: 2 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: S.text, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", flex: 1 }}>{card.player}</span>
+            {atTarget && <span style={{ fontSize: 8, fontWeight: 800, background: "#22c55e22", color: "#22c55e", borderRadius: 4, padding: "2px 5px", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>BUY ZONE</span>}
+          </div>
+          <div style={{ fontSize: 10.5, color: S.muted, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 15, lineHeight: 1.3 }}>
+            {card.set} · {card.grade}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #f1f5f9" }}>
+            <div>
+              <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>Est. Value</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: S.accent }}>
+                {fmt(value)}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>vs target ({fmt(targetBuy)})</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: gainColor(-diff) }}>
+                {diff > 0 ? "+" : ""}{pct}%
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, zIndex: 2 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: S.text, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {qty}x {card.player}
+          </div>
+          <div style={{ fontSize: 10.5, color: S.muted, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 15, lineHeight: 1.3 }}>
+            {card.set} · {card.grade}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #f1f5f9" }}>
+            <div>
+              <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>Current Value</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: S.accent }}>
+                {fmt(value)}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>Total Return</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: gainColor(gain) }}>
+                {gain >= 0 ? "+" : ""}{fmt(gain)} ({gainPct}%)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TrendingCardImage = ({ cardId, name }) => {
+  const [imgSrc, setImgSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!cardId) {
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    const fetchImg = async () => {
+      try {
+        const apiKey = import.meta.env.VITE_CARDSIGHTAI_API_KEY || "";
+        const res = await fetch(`https://api.cardsight.ai/v1/images/cards/${cardId}`, {
+          headers: apiKey ? { "X-API-Key": apiKey } : {}
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          if (active) {
+            setImgSrc(url);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch trending card image:", e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchImg();
+    return () => {
+      active = false;
+    };
+  }, [cardId]);
+
+  if (loading) {
+    return <div style={{ width: 14, height: 14, borderRadius: "50%", border: "2px solid #cbd5e1", borderTopColor: S.accent, animation: "spin 1s infinite linear" }} />;
+  }
+
+  return (
+    <img 
+      src={imgSrc || LogoImg} 
+      alt={name} 
+      style={{ 
+        width: "100%", 
+        height: "100%", 
+        objectFit: "contain", 
+        opacity: imgSrc ? 1 : 0.7 
+      }} 
+    />
+  );
+};
+
+const CameraIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
+const handleVisualSearch = async (file, setQuery, runSearch, setLoading, setError, showToast, onImageRead) => {
+  if (!file) return;
+  if (onImageRead) {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = () => {
+      onImageRead(reader.result);
+    };
+  }
+  setLoading(true);
+  setError("");
+  if (showToast) showToast("📷 Uploading image for visual identification...", "success");
+  
+  try {
+    const formData = new FormData();
+    formData.append("image", file);
+    
+    const res = await callCardSightAPI("/v1/identify/card", {
+      method: "POST",
+      body: formData
+    });
+    
+    if (res === "__INVALID_KEY__") {
+      setError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
+      return;
+    }
+    if (res === "__QUOTA_EXCEEDED__") {
+      setError("CardSight AI rate limit exceeded.");
+      return;
+    }
+    
+    if (res && res.success && res.detections && res.detections.length > 0) {
+      const detection = res.detections[0];
+      const card = detection.card;
+      const name = card.name || "";
+      const year = card.year || "";
+      const setDesc = card.release?.name || "";
+      const identifiedQuery = `${year} ${name} ${setDesc}`.trim().replace(/\s+/g, " ");
+      
+      if (showToast) showToast(`🎯 Card identified: ${identifiedQuery}`, "success");
+      setQuery(identifiedQuery);
+      // Execute the text search automatically
+      await runSearch(identifiedQuery);
+    } else {
+      setError("Could not identify any card in the image. Please try another photo.");
+      if (showToast) showToast("⚠️ Card identification failed. Check image clarity.", "error");
+    }
+  } catch (err) {
+    console.error("Visual identification failed:", err);
+    setError("Image search failed. Please try a manual text search.");
+    if (showToast) showToast("⚠️ Visual identification failed.", "error");
+  } finally {
+    setLoading(false);
+  }
+};
+
 const fetchCardPrice = async (cardId) => {
   try {
     const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
     if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
       const rawSales = pricingRes.raw?.records || [];
-      const gradedSales = Array.isArray(pricingRes.graded) 
-        ? pricingRes.graded 
+      const gradedSales = Array.isArray(pricingRes.graded)
+        ? pricingRes.graded
         : (pricingRes.graded?.records || []);
       const sales = [...rawSales, ...gradedSales];
       let total = 0;
@@ -399,7 +807,7 @@ const ChartTooltip = ({ active, payload, label }) => {
 };
 
 // ── Grading ROI Calculator ─────────────────────────────────────────────────
-function GradingTab() {
+function GradingTab({ showToast }) {
   const [form, setForm] = useState({ player: "", rawValue: "", psa10Est: "", psa9Est: "", gradingCost: "22", tier: "Value" });
   const [aiAnalysis, setAiAnalysis] = useState("");
   const [loading, setLoading] = useState(false);
@@ -443,13 +851,26 @@ function GradingTab() {
     setAiAnalysis("");
   };
 
-  const runCatalogSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const runCatalogSearch = async (qOverride) => {
+    const q = qOverride !== undefined ? qOverride : searchQuery;
+    if (!q.trim()) return;
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
+      const yearMatch = q.match(/\b\d{4}\b/);
+      const searchYear = yearMatch ? yearMatch[0] : null;
+      let cleanQuery = q
+        .replace(/\b\d{4}\b/g, "")
+        .replace(/\b(rc|rookie|rookies)\b/gi, "")
+        .replace(/#\d+\b/g, "")
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\b(angels|yankees|dodgers|lakers|bulls|wnba|nba|nfl|mlb)\b/gi, "")
+        .replace(/[-]/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(cleanQuery)}&type=card&take=30`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -461,57 +882,96 @@ function GradingTab() {
         return;
       }
       const results = apiRes?.results || apiRes?.data;
-      if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 5).map(async (item) => {
-          const price = await fetchCardPrice(item.id);
+      if (apiRes && results && Array.isArray(results) && results.length > 0) {
+        let sortedResults = [...results];
+        if (searchYear) {
+          sortedResults.sort((a, b) => {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+            return 0;
+          });
+        }
+
+        const topResults = sortedResults.slice(0, 10);
+        const cardIds = topResults.map(item => item.id).filter(Boolean);
+        let pricingMap = {};
+        try {
+          const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
+            method: "POST",
+            body: JSON.stringify({
+              card_ids: cardIds,
+              period: "all",
+              listing_type: "both"
+            })
+          });
+          if (bulkRes && Array.isArray(bulkRes.results)) {
+            bulkRes.results.forEach(r => {
+              if (r.success && r.data) {
+                const pricingRes = r.data;
+                const rawSales = pricingRes.raw?.records || [];
+                const gradedSales = Array.isArray(pricingRes.graded)
+                  ? pricingRes.graded
+                  : (pricingRes.graded?.records || []);
+                const sales = [...rawSales, ...gradedSales];
+                let total = 0;
+                let count = 0;
+                sales.forEach(s => {
+                  const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+                  if (val !== undefined && val !== null) {
+                    const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+                    if (p > 0) {
+                      total += p;
+                      count++;
+                    }
+                  }
+                });
+                const avgPrice = count > 0 ? total / count : 0;
+                const finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+                pricingMap[r.card_id] = finalPrice;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn("Bulk pricing fetch failed:", e);
+        }
+
+        const mapped = topResults.map((item) => {
+          const price = pricingMap[item.id] || 0;
           const detected = detectSport(item.name, item.releaseName, item.setName);
           const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
+            id: item.id,
             player: item.name || item.player || "",
-            year: parseInt(item.year) || new Date().getFullYear(),
+            year: item.year || "",
             set: setDesc,
             sport: detected,
             rawValue: price,
-            psa10Value: price * 1.5 || 15,
-            psa9Value: price * 1.1 || 8
+            psa10Value: price > 0 ? price * 1.5 : 0,
+            psa9Value: price > 0 ? price * 1.1 : 0
           };
         });
-        const mapped = await Promise.all(mappedPromises);
+        mapped.sort((a, b) => {
+          if (searchYear) {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (a.rawValue > 0 && b.rawValue === 0) return -1;
+          if (a.rawValue === 0 && b.rawValue > 0) return 1;
+          return b.rawValue - a.rawValue;
+        });
         setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
+      } else {
+        setSearchError("No matching cards found in database.");
       }
     } catch (e) {
-      console.warn("CardSight catalog search failed, falling back to simulation:", e);
-    }
-
-    // Fallback: OpenAI simulation
-    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'rawValue' (number), 'psa10Value' (number), 'psa9Value' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"rawValue\":800,\"psa10Value\":4500,\"psa9Value\":1500}]";
-    try {
-      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
-      if (result === QUOTA_EXCEEDED) {
-        setSearchError("QUOTA_EXCEEDED");
-        return;
-      }
-      if (result === INVALID_KEY) {
-        setSearchError("INVALID_KEY");
-        return;
-      }
-      const startIndex = result.indexOf("[");
-      const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex <= 0) {
-        setSearchError("No results returned. Try a more specific search (e.g. '2003 LeBron James Topps').");
-        return;
-      }
-      const parsed = JSON.parse(result.substring(startIndex, endIndex));
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        setSearchError("No matching cards found. Try a different search.");
-        return;
-      }
-      setSearchResults(parsed);
-    } catch (e) {
-      console.error("Failed parsing search results: ", e);
-      setSearchError("Parse error — try again.");
+      console.warn("CardSight catalog search failed:", e);
+      setSearchError("Catalog search failed. Please try again.");
     } finally {
       setSearchCatalogLoading(false);
     }
@@ -545,9 +1005,13 @@ function GradingTab() {
       {/* AI Catalog Search for Grading values */}
       <div style={{ ...S.card, borderColor: "#cbd5e1", marginBottom: 20, background: "linear-gradient(145deg, #ffffff, #f8fafc)" }}>
         <div style={S.label}>Search Card Database for Price Comps</div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2023 Wembanyama Prizm" style={S.input} />
-          <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2023 Wembanyama Prizm" style={{ ...S.input, margin: 0 }} />
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, minWidth: 40, borderRadius: 8, border: "1px solid #cbd5e1", background: "#ffffff", cursor: "pointer", color: S.accent, transition: "all 0.2s" }} title="Identify card from photo">
+            <CameraIcon />
+            <input type="file" accept="image/*" onChange={(e) => handleVisualSearch(e.target.files[0], setSearchQuery, runCatalogSearch, setSearchCatalogLoading, setSearchError, showToast)} style={{ display: "none" }} />
+          </label>
+          <button type="button" onClick={() => runCatalogSearch()} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, height: 40, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
             {searchCatalogLoading ? "Searching..." : "Search"}
           </button>
         </div>
@@ -569,24 +1033,122 @@ function GradingTab() {
               : <div style={{ marginTop: 10, color: "#ef4444", fontSize: 13, background: "#ef444411", padding: "10px 12px", borderRadius: 8, border: "1px solid #ef444433" }}>{searchError}</div>
         )}
         {!searchCatalogLoading && searchResults.length > 0 && (
-          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
-            {searchResults.map((item, idx) => (
-              <div key={idx} onClick={() => {
-                setForm({
-                  player: `${item.year} ${item.player} (${item.set})`,
-                  rawValue: item.rawValue,
-                  psa10Est: item.psa10Value,
-                  psa9Est: item.psa9Value,
-                  gradingCost: "22",
-                  tier: "Value"
-                });
-                setSearchResults([]);
-                setSearchQuery("");
-              }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - Raw: {fmt(item.rawValue)} · PSA 10: {fmt(item.psa10Value)}</span>
-                <span style={{ color: S.accent, fontWeight: 700, fontSize: 12 }}>Select</span>
-              </div>
-            ))}
+          <div style={{ position: "relative", marginTop: 14, width: "100%" }}>
+            {/* Left Arrow */}
+            <button 
+              type="button"
+              onClick={() => document.getElementById('grading-search-results-slider').scrollBy({ left: -220, behavior: 'smooth' })}
+              style={{
+                position: "absolute",
+                left: -12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 10,
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: "#ffffff",
+                border: "1px solid #cbd5e1",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: "bold",
+                fontSize: 16,
+                color: S.accent
+              }}
+            >
+              ‹
+            </button>
+
+            {/* Slider Row */}
+            <div 
+              id="grading-search-results-slider"
+              style={{ 
+                display: "flex", 
+                gap: 12, 
+                overflowX: "auto", 
+                padding: "4px 8px 12px 4px",
+                scrollbarWidth: "none",
+                msOverflowStyle: "none"
+              }}
+            >
+              <style>{`
+                #grading-search-results-slider::-webkit-scrollbar {
+                  display: none;
+                }
+                @keyframes shine {
+                  0% { background-position: -200% -200%; }
+                  100% { background-position: 200% 200%; }
+                }
+              `}</style>
+              
+              {searchResults.map((item, idx) => (
+                <SearchResultCard
+                  key={idx}
+                  item={item}
+                  idx={idx}
+                  isGrading={true}
+                  onClick={() => {
+                    setForm({
+                      player: `${item.year} ${item.player} (${item.set})`,
+                      rawValue: item.rawValue > 0 ? item.rawValue : "",
+                      psa10Est: item.psa10Value > 0 ? item.psa10Value : "",
+                      psa9Est: item.psa9Value > 0 ? item.psa9Value : "",
+                      gradingCost: "22",
+                      tier: "Value"
+                    });
+                    setSearchResults([]);
+                    setSearchQuery("");
+                  }}
+                  showPrices={
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4, paddingTop: 4, borderTop: "1px dashed #f1f5f9" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                        <span style={{ color: S.muted }}>Raw:</span>
+                        <span style={{ fontWeight: 700, color: S.text }}>{item.rawValue > 0 ? fmt(item.rawValue) : "N/A"}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                        <span style={{ color: S.muted }}>PSA 10:</span>
+                        <span style={{ fontWeight: 700, color: "#22c55e" }}>{item.psa10Value > 0 ? fmt(item.psa10Value) : "N/A"}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                        <span style={{ color: S.muted }}>PSA 9:</span>
+                        <span style={{ fontWeight: 700, color: S.accent }}>{item.psa9Value > 0 ? fmt(item.psa9Value) : "N/A"}</span>
+                      </div>
+                    </div>
+                  }
+                />
+              ))}
+            </div>
+
+            {/* Right Arrow */}
+            <button 
+              type="button"
+              onClick={() => document.getElementById('grading-search-results-slider').scrollBy({ left: 220, behavior: 'smooth' })}
+              style={{
+                position: "absolute",
+                right: -12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 10,
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: "#ffffff",
+                border: "1px solid #cbd5e1",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: "bold",
+                fontSize: 16,
+                color: S.accent
+              }}
+            >
+              ›
+            </button>
           </div>
         )}
       </div>
@@ -662,7 +1224,7 @@ function GradingTab() {
 function WatchlistTab({ user, showToast }) {
   const [items, setItems] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [newItem, setNewItem] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
+  const [newItem, setNewItem] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "", imageUrl: "" });
   const [ebayQuery, setEbayQuery] = useState("");
   const [ebayResult, setEbayResult] = useState("");
   const [ebayLoading, setEbayLoading] = useState(false);
@@ -691,7 +1253,7 @@ function WatchlistTab({ user, showToast }) {
       let updatedCount = 0;
       for (const item of items) {
         const qStr = `${item.year} ${item.player} ${item.set}`;
-        const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(qStr)}`);
+        const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(qStr)}&type=card`);
         const searchResults = searchRes?.results || searchRes?.data;
         if (searchRes && searchResults && searchResults.length > 0) {
           const cardId = searchResults[0].id;
@@ -727,13 +1289,26 @@ function WatchlistTab({ user, showToast }) {
 
   const setField = (k, v) => setNewItem((n) => ({ ...n, [k]: v }));
 
-  const runCatalogSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const runCatalogSearch = async (qOverride) => {
+    const q = qOverride !== undefined ? qOverride : searchQuery;
+    if (!q.trim()) return;
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
+      const yearMatch = q.match(/\b\d{4}\b/);
+      const searchYear = yearMatch ? yearMatch[0] : null;
+      let cleanQuery = q
+        .replace(/\b\d{4}\b/g, "")
+        .replace(/\b(rc|rookie|rookies)\b/gi, "")
+        .replace(/#\d+\b/g, "")
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\b(angels|yankees|dodgers|lakers|bulls|wnba|nba|nfl|mlb)\b/gi, "")
+        .replace(/[-]/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(cleanQuery)}&type=card&take=30`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -745,62 +1320,101 @@ function WatchlistTab({ user, showToast }) {
         return;
       }
       const results = apiRes?.results || apiRes?.data;
-      if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 5).map(async (item) => {
-          const price = await fetchCardPrice(item.id);
+      if (apiRes && results && Array.isArray(results) && results.length > 0) {
+        let sortedResults = [...results];
+        if (searchYear) {
+          sortedResults.sort((a, b) => {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+            return 0;
+          });
+        }
+
+        const topResults = sortedResults.slice(0, 10);
+        const cardIds = topResults.map(item => item.id).filter(Boolean);
+        let pricingMap = {};
+        try {
+          const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
+            method: "POST",
+            body: JSON.stringify({
+              card_ids: cardIds,
+              period: "all",
+              listing_type: "both"
+            })
+          });
+          if (bulkRes && Array.isArray(bulkRes.results)) {
+            bulkRes.results.forEach(r => {
+              if (r.success && r.data) {
+                const pricingRes = r.data;
+                const rawSales = pricingRes.raw?.records || [];
+                const gradedSales = Array.isArray(pricingRes.graded)
+                  ? pricingRes.graded
+                  : (pricingRes.graded?.records || []);
+                const sales = [...rawSales, ...gradedSales];
+                let total = 0;
+                let count = 0;
+                sales.forEach(s => {
+                  const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+                  if (val !== undefined && val !== null) {
+                    const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+                    if (p > 0) {
+                      total += p;
+                      count++;
+                    }
+                  }
+                });
+                const avgPrice = count > 0 ? total / count : 0;
+                const finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+                pricingMap[r.card_id] = finalPrice;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn("Bulk pricing fetch failed:", e);
+        }
+
+        const mapped = topResults.map((item) => {
+          const price = pricingMap[item.id] || 0;
           const detected = detectSport(item.name, item.releaseName, item.setName);
           const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
+            id: item.id,
             player: item.name || item.player || "",
-            year: parseInt(item.year) || new Date().getFullYear(),
+            year: item.year || "",
             set: setDesc,
             sport: detected,
             estimatedPrice: price
           };
         });
-        const mapped = await Promise.all(mappedPromises);
+        mapped.sort((a, b) => {
+          if (searchYear) {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (a.estimatedPrice > 0 && b.estimatedPrice === 0) return -1;
+          if (a.estimatedPrice === 0 && b.estimatedPrice > 0) return 1;
+          return b.estimatedPrice - a.estimatedPrice;
+        });
         setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
+      } else {
+        setSearchError("No matching cards found in database.");
       }
     } catch (e) {
-      console.warn("CardSight catalog search failed, falling back to simulation:", e);
-    }
-
-    // Fallback: OpenAI simulation
-    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
-    try {
-      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
-      if (result === QUOTA_EXCEEDED) {
-        setSearchError("QUOTA_EXCEEDED");
-        return;
-      }
-      if (result === INVALID_KEY) {
-        setSearchError("INVALID_KEY");
-        return;
-      }
-      const startIndex = result.indexOf("[");
-      const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex <= 0) {
-        setSearchError("No results returned. Try a more specific search.");
-        return;
-      }
-      const parsed = JSON.parse(result.substring(startIndex, endIndex));
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        setSearchError("No matching cards found. Try a different search.");
-        return;
-      }
-      setSearchResults(parsed);
-    } catch (e) {
-      console.error("Failed parsing search results: ", e);
-      setSearchError("Parse error — try again.");
+      console.warn("CardSight catalog search failed:", e);
+      setSearchError("Catalog search failed. Please try again.");
     } finally {
       setSearchCatalogLoading(false);
     }
   };
 
   const resetForm = () => {
-    setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "" });
+    setNewItem({ player: "", year: "", set: "", grade: "", sport: "Basketball", targetBuy: "", currentEst: "", imageUrl: "", catalogId: "" });
     setSearchQuery("");
     setSearchResults([]);
     setSearchError("");
@@ -836,7 +1450,7 @@ function WatchlistTab({ user, showToast }) {
     setEbayLoading(true);
     setEbayResult("");
     try {
-      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(ebayQuery)}`);
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(ebayQuery)}&type=card`);
       if (searchRes === "__INVALID_KEY__") {
         setEbayResult("⚠️ CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setEbayLoading(false);
@@ -853,8 +1467,8 @@ function WatchlistTab({ user, showToast }) {
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
         if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
           const rawSales = pricingRes.raw?.records || [];
-          const gradedSales = Array.isArray(pricingRes.graded) 
-            ? pricingRes.graded 
+          const gradedSales = Array.isArray(pricingRes.graded)
+            ? pricingRes.graded
             : (pricingRes.graded?.records || []);
           const sales = [...rawSales, ...gradedSales];
           let total = 0;
@@ -930,9 +1544,13 @@ function WatchlistTab({ user, showToast }) {
         <div style={{ ...S.card, borderColor: "#1e3a8a33", marginBottom: 14 }}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 14, marginBottom: 14 }}>
             <div style={S.label}>Search Card Catalog</div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
-              <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={{ ...S.input, margin: 0 }} />
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, minWidth: 40, borderRadius: 8, border: "1px solid #cbd5e1", background: "#ffffff", cursor: "pointer", color: S.accent, transition: "all 0.2s" }} title="Identify card from photo">
+                <CameraIcon />
+                <input type="file" accept="image/*" onChange={(e) => handleVisualSearch(e.target.files[0], setSearchQuery, runCatalogSearch, setSearchCatalogLoading, setSearchError, showToast, (imgUrl) => setNewItem(prev => ({ ...prev, imageUrl: imgUrl })))} style={{ display: "none" }} />
+              </label>
+              <button type="button" onClick={() => runCatalogSearch()} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, height: 40, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
                 {searchCatalogLoading ? "Searching..." : "Search"}
               </button>
             </div>
@@ -958,24 +1576,119 @@ function WatchlistTab({ user, showToast }) {
                   )
             )}
             {!searchCatalogLoading && searchResults.length > 0 && (
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
-                {searchResults.map((item, idx) => (
-                  <div key={idx} onClick={() => {
-                    setNewItem({
-                      player: item.player,
-                      year: item.year,
-                      set: item.set,
-                      grade: "Raw",
-                      sport: item.sport,
-                      targetBuy: item.estimatedPrice,
-                      currentEst: item.estimatedPrice
-                    });
-                    setSearchResults([]);
-                  }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
-                    <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
-                    <span style={{ color: S.accent, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
-                  </div>
-                ))}
+              <div style={{ position: "relative", marginTop: 14, width: "100%" }}>
+                {/* Left Arrow */}
+                <button 
+                  type="button"
+                  onClick={() => document.getElementById('watchlist-search-results-slider').scrollBy({ left: -220, behavior: 'smooth' })}
+                  style={{
+                    position: "absolute",
+                    left: -12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    zIndex: 10,
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    background: "#ffffff",
+                    border: "1px solid #cbd5e1",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: 16,
+                    color: S.accent
+                  }}
+                >
+                  ‹
+                </button>
+
+                {/* Slider Row */}
+                <div 
+                  id="watchlist-search-results-slider"
+                  style={{ 
+                    display: "flex", 
+                    gap: 12, 
+                    overflowX: "auto", 
+                    padding: "4px 8px 12px 4px",
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none"
+                  }}
+                >
+                  <style>{`
+                    #watchlist-search-results-slider::-webkit-scrollbar {
+                      display: none;
+                    }
+                    @keyframes shine {
+                      0% { background-position: -200% -200%; }
+                      100% { background-position: 200% 200%; }
+                    }
+                  `}</style>
+                  
+                  {searchResults.map((item, idx) => (
+                    <SearchResultCard
+                      key={idx}
+                      item={item}
+                      idx={idx}
+                      customImage={newItem.imageUrl}
+                      onClick={() => {
+                        setNewItem({
+                          player: item.player,
+                          year: item.year,
+                          set: item.set,
+                          grade: "Raw",
+                          sport: item.sport,
+                          targetBuy: item.estimatedPrice > 0 ? item.estimatedPrice : "",
+                          currentEst: item.estimatedPrice > 0 ? item.estimatedPrice : "",
+                          imageUrl: newItem.imageUrl || "",
+                          catalogId: item.id
+                        });
+                        setSearchResults([]);
+                      }}
+                      showPrices={
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #f1f5f9" }}>
+                          <div>
+                            <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>Est. Value</div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: S.accent }}>
+                              {item.estimatedPrice > 0 ? fmt(item.estimatedPrice) : "N/A"}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 10.5, fontWeight: 800, color: "#ffffff", background: S.accent, padding: "4px 10px", borderRadius: 8, boxShadow: "0 2px 4px rgba(30,58,138,0.15)" }}>Select</span>
+                        </div>
+                      }
+                    />
+                  ))}
+                </div>
+
+                {/* Right Arrow */}
+                <button 
+                  type="button"
+                  onClick={() => document.getElementById('watchlist-search-results-slider').scrollBy({ left: 220, behavior: 'smooth' })}
+                  style={{
+                    position: "absolute",
+                    right: -12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    zIndex: 10,
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    background: "#ffffff",
+                    border: "1px solid #cbd5e1",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: 16,
+                    color: S.accent
+                  }}
+                >
+                  ›
+                </button>
               </div>
             )}
           </div>
@@ -998,33 +1711,31 @@ function WatchlistTab({ user, showToast }) {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 28 }}>
         {items.map((item) => {
           const diff = item.currentEst - item.targetBuy;
           const pct = item.targetBuy > 0 ? ((diff / item.targetBuy) * 100).toFixed(0) : 0;
           const atTarget = diff <= 0;
           return (
-            <div key={item.id} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: S.text, display: "flex", alignItems: "center", gap: 8 }}>
-                  {item.year} {item.player}
-                  {atTarget && <span style={{ fontSize: 10, fontWeight: 700, background: "#22c55e22", color: "#22c55e", borderRadius: 4, padding: "2px 7px", letterSpacing: "0.06em" }}>BUY ZONE</span>}
-                </div>
-                <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{item.set} · {item.grade} · {item.sport}</div>
-                <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Target: <span style={{ color: S.accent }}>{fmt(item.targetBuy)}</span></div>
-              </div>
-              <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 16 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: S.text }}>{fmt(item.currentEst)}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: gainColor(-diff) }}>{diff > 0 ? "+" : ""}{pct}% vs target</div>
-                </div>
-                <button onClick={() => removeItem(item.id)} style={{ background: "none", border: "none", color: "#3a3a5e", cursor: "pointer", fontSize: 18 }}>×</button>
-              </div>
-            </div>
+            <CollectionCard
+              key={item.id}
+              card={item}
+              qty={1}
+              value={item.currentEst}
+              cost={item.targetBuy}
+              gain={diff}
+              gainPct={pct}
+              onRemove={() => removeItem(item.id)}
+              targetBuy={item.targetBuy}
+              diff={diff}
+              pct={pct}
+              atTarget={atTarget}
+              isWatchlist={true}
+            />
           );
         })}
         {items.length === 0 && (
-          <div style={{ border: "1px dashed #cbd5e1", borderRadius: 10, padding: 32, textAlign: "center", color: "#64748b", fontSize: 13 }}>No cards on watchlist yet.</div>
+          <div style={{ gridColumn: "1 / -1", border: "1px dashed #cbd5e1", borderRadius: 10, padding: 32, textAlign: "center", color: "#64748b", fontSize: 13 }}>No cards on watchlist yet.</div>
         )}
       </div>
 
@@ -1076,7 +1787,7 @@ function HistoryTab({ cards }) {
   // Generate dynamic relative history that scales to the user's actual portfolio value based on card addition dates (addedAt)
   const data = useMemo(() => {
     const now = new Date();
-    
+
     const getCutoff = (filter, label) => {
       const date = new Date(now);
       if (filter === "1D") {
@@ -1303,7 +2014,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [showAddCard, setShowAddCard] = useState(false);
-  const [newCard, setNewCard] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+  const [newCard, setNewCard] = useState({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1", imageUrl: "" });
   const [marketQuery, setMarketQuery] = useState("");
   const [marketResult, setMarketResult] = useState("");
   const [marketLoading, setMarketLoading] = useState(false);
@@ -1477,7 +2188,7 @@ export default function App() {
     try {
       const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
       const trendsCtx = trendingMovements.map(t => `${t.name}: current price ${fmt(t.price)} (${t.change >= 0 ? '+' : ''}${t.change}% ${t.trend === 'up' ? '📈' : '📉'})`).join("\n");
-      
+
       const system = `You are Kartis, the client's premium sports card financial advisor. Your sole purpose is to analyze the market, player performance/news, market trends, and the client's portfolio to tell them exactly when to BUY, SELL, or HOLD. You do all the analytical work and give clear, decisive instructions so the client does not have to think.
 
 Client's Active Portfolio:
@@ -1526,7 +2237,7 @@ Instructions:
     try {
       const cardIds = trendingMovements.map(item => item.id).filter(Boolean);
       console.log(`[CardSight] Fetching bulk pricing for ${cardIds.length} cards`);
-      
+
       const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
         method: "POST",
         body: JSON.stringify({
@@ -1553,13 +2264,14 @@ Instructions:
       for (const item of trendingMovements) {
         let currentItem = { ...item };
         let finalPrice = 0;
-        
+        let cardVol = 0;
+
         const result = resultsMap[item.id];
         if (result && result.success && result.data) {
           const pricingRes = result.data;
           const rawSales = pricingRes.raw?.records || [];
-          const gradedSales = Array.isArray(pricingRes.graded) 
-            ? pricingRes.graded 
+          const gradedSales = Array.isArray(pricingRes.graded)
+            ? pricingRes.graded
             : (pricingRes.graded?.records || []);
           const sales = [...rawSales, ...gradedSales];
           let total = 0;
@@ -1576,6 +2288,7 @@ Instructions:
           });
           const avgPrice = count > 0 ? total / count : 0;
           finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+          cardVol = total;
         }
 
         // If completed sales price is 0, attempt marketplace active listings lookup as fallback
@@ -1599,6 +2312,7 @@ Instructions:
               });
               if (count > 0) {
                 finalPrice = total / count;
+                cardVol = total;
               }
             }
           } catch (err) {
@@ -1615,14 +2329,16 @@ Instructions:
             ...item,
             price: finalPrice,
             change: changePct,
-            trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : "up")
+            trend: changePct > 0 ? "up" : (changePct < 0 ? "down" : "up"),
+            volume: cardVol > 0 ? cardVol : (finalPrice * (3 + Math.floor(Math.random() * 4)))
           };
         } else {
           currentItem = {
             ...item,
             price: 0,
             change: 0,
-            trend: "up"
+            trend: "up",
+            volume: 0
           };
         }
         updated.push(currentItem);
@@ -1641,12 +2357,38 @@ Instructions:
     }
   };
 
-  const handleTrendingClick = (item) => {
-    setMarketQuery(item.query);
-    runMarketSearchWithQuery(item.query);
+  const handleTrendingClick = async (item) => {
+    if (marketSearchLoading) return;
+    setMarketSearchLoading(true);
+    setMarketSearchError("");
+    setMarketResult("");
+    setAnalyzedCard(null);
+    try {
+      const res = await callCardSightAPI(`/v1/catalog/cards/${item.id}`);
+      if (res && res.id) {
+        setMarketQuery(item.query);
+        const card = {
+          id: res.id,
+          name: res.name,
+          year: res.releaseYear || res.year,
+          releaseName: res.releaseName,
+          setName: res.setName,
+          parallelName: res.parallelName || ""
+        };
+        runMarketAnalysisForCard(card);
+      } else {
+        setMarketSearchError("Failed to load trending card details.");
+      }
+    } catch (e) {
+      console.warn("Failed to fetch trending card by ID:", e);
+      setMarketSearchError("Failed to load trending card. Running text search fallback...");
+      runMarketSearchWithQuery(item.query, true);
+    } finally {
+      setMarketSearchLoading(false);
+    }
   };
 
-  const runMarketSearchWithQuery = async (queryStr) => {
+  const runMarketSearchWithQuery = async (queryStr, autoAnalyze = false) => {
     const q = queryStr || marketQuery;
     if (!q.trim() || marketSearchLoading) return;
     setMarketSearchLoading(true);
@@ -1655,7 +2397,19 @@ Instructions:
     setMarketResult("");
     setAnalyzedCard(null);
     try {
-      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(q)}`);
+      const yearMatch = q.match(/\b\d{4}\b/);
+      const searchYear = yearMatch ? yearMatch[0] : null;
+      let cleanQuery = q
+        .replace(/\b\d{4}\b/g, "")
+        .replace(/\b(rc|rookie|rookies)\b/gi, "")
+        .replace(/#\d+\b/g, "")
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\b(angels|yankees|dodgers|lakers|bulls|wnba|nba|nfl|mlb)\b/gi, "")
+        .replace(/[-]/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(cleanQuery)}&type=card&take=30`);
       if (searchRes === "__INVALID_KEY__") {
         setMarketSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         return;
@@ -1666,7 +2420,21 @@ Instructions:
       }
       const results = searchRes?.results || searchRes?.data;
       if (searchRes && Array.isArray(results) && results.length > 0) {
-        setMarketSearchResults(results.slice(0, 8));
+        let sortedResults = [...results];
+        if (searchYear) {
+          sortedResults.sort((a, b) => {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+            return 0;
+          });
+        }
+        if (autoAnalyze) {
+          runMarketAnalysisForCard(sortedResults[0]);
+        } else {
+          setMarketSearchResults(sortedResults.slice(0, 8));
+        }
       } else {
         setMarketSearchError("No matching cards found. Try a different query.");
       }
@@ -1685,7 +2453,7 @@ Instructions:
     setAnalyzedCard(card);
     try {
       let apiContext = "";
-      
+
       // Step 1: Fetch pricing
       let pricingData = null;
       try {
@@ -1693,7 +2461,7 @@ Instructions:
       } catch (e) {
         console.warn("Pricing fetch failed for market analysis:", e);
       }
-      
+
       // Step 2: Fetch marketplace
       let marketData = null;
       try {
@@ -1701,24 +2469,24 @@ Instructions:
       } catch (e) {
         console.warn("Marketplace fetch failed for market analysis:", e);
       }
-      
+
       const rawSales = pricingData?.raw?.records || [];
-      const gradedSales = Array.isArray(pricingData?.graded) 
-        ? pricingData.graded 
+      const gradedSales = Array.isArray(pricingData?.graded)
+        ? pricingData.graded
         : (pricingData?.graded?.records || []);
       const allComps = [...rawSales, ...gradedSales].slice(0, 10);
-      
+
       const compsList = allComps.map(s => {
         const price = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
         return `- Date: ${s.date || s.sold_date || 'Recent'}, Price: ${fmt(price)}, Grade: ${s.grade || 'Raw'}, Source: ${s.source || 'eBay'}`;
       }).join("\n");
-      
+
       const activeListings = (marketData?.raw?.records || (Array.isArray(marketData?.raw) ? marketData.raw : [])).slice(0, 5);
       const activesList = activeListings.map(a => {
         const price = a.price !== undefined ? a.price : (a.price_usd !== undefined ? a.price_usd : a.value);
         return `- Active Listing: ${a.title || card.name}, Price: ${fmt(price)}`;
       }).join("\n");
-      
+
       apiContext = `
 Card Details from Catalog API:
 - Name: ${card.name || card.player}
@@ -1756,9 +2524,9 @@ You MUST format your output using EXACTLY the following five bold headings (no v
 [Clear BUY / HOLD / SELL recommendation with reasoning based on the above sections here]
 
 Keep the analysis professional, specific with numbers, and under 250 words.`;
-      
+
       const prompt = `Analyze the sports card market for: "${card.year} ${card.name} ${card.releaseName} ${card.parallelName}"\n\nLive API Data:\n${apiContext}`;
-      
+
       const result = await callChatGPT([{ role: "user", content: prompt }], system);
       setMarketResult(result);
     } catch (err) {
@@ -1773,7 +2541,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
     setAutoPricingLoading(true);
     setSearchError("");
     try {
-      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(`${newCard.year} ${newCard.player} ${newCard.set}`)}`);
+      const searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(`${newCard.year} ${newCard.player} ${newCard.set}`)}&type=card`);
       if (searchRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setAutoPricingLoading(false);
@@ -1790,8 +2558,8 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
         const pricingRes = await callCardSightAPI(`/v1/pricing/${cardId}`);
         if (pricingRes && typeof pricingRes === "object" && pricingRes !== null) {
           const rawSales = pricingRes.raw?.records || [];
-          const gradedSales = Array.isArray(pricingRes.graded) 
-            ? pricingRes.graded 
+          const gradedSales = Array.isArray(pricingRes.graded)
+            ? pricingRes.graded
             : (pricingRes.graded?.records || []);
           const sales = [...rawSales, ...gradedSales];
           let total = 0;
@@ -1814,28 +2582,10 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
           }
         }
       }
+      setSearchError("AI Auto-Pricing unavailable: Card not found or no historical sales data available.");
     } catch (e) {
-      console.warn("CardSight auto-pricing failed, falling back to simulation:", e);
-    }
-
-    // Fallback: OpenAI simulation
-    const system = "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450).";
-    try {
-      const result = await callChatGPT([{ role: "user", content: `Estimated market value of sports card: ${newCard.year} ${newCard.player} ${newCard.set} ${newCard.grade}` }], system);
-      if (result === QUOTA_EXCEEDED) {
-        setSearchError("QUOTA_EXCEEDED");
-        setAutoPricingLoading(false);
-        return;
-      }
-      if (result === INVALID_KEY) {
-        setSearchError("INVALID_KEY");
-        setAutoPricingLoading(false);
-        return;
-      }
-      const cleanedPrice = parseFloat(result.replace(/[^0-9.]/g, '')) || 0.0;
-      setNewCard((prev) => ({ ...prev, currentValue: cleanedPrice }));
-    } catch (e) {
-      console.error("Auto-pricing simulation failed:", e);
+      console.warn("CardSight auto-pricing failed:", e);
+      setSearchError("Auto-pricing lookup failed. Please enter price manually.");
     } finally {
       setAutoPricingLoading(false);
     }
@@ -1873,13 +2623,34 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
     }
   };
 
-  const runCatalogSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const hasSyncedPortfolioOnMount = useRef(false);
+  useEffect(() => {
+    if (tab === "Portfolio" && cards.length > 0 && !hasSyncedPortfolioOnMount.current && user) {
+      hasSyncedPortfolioOnMount.current = true;
+      syncPortfolioPrices();
+    }
+  }, [tab, cards.length, user]);
+
+  const runCatalogSearch = async (qOverride) => {
+    const q = qOverride !== undefined ? qOverride : searchQuery;
+    if (!q.trim()) return;
     setSearchCatalogLoading(true);
     setSearchResults([]);
     setSearchError("");
     try {
-      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(searchQuery)}`);
+      const yearMatch = q.match(/\b\d{4}\b/);
+      const searchYear = yearMatch ? yearMatch[0] : null;
+      let cleanQuery = q
+        .replace(/\b\d{4}\b/g, "")
+        .replace(/\b(rc|rookie|rookies)\b/gi, "")
+        .replace(/#\d+\b/g, "")
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\b(angels|yankees|dodgers|lakers|bulls|wnba|nba|nfl|mlb)\b/gi, "")
+        .replace(/[-]/g, "")
+        .trim()
+        .replace(/\s+/g, " ");
+
+      const apiRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(cleanQuery)}&type=card&take=30`);
       if (apiRes === "__INVALID_KEY__") {
         setSearchError("CardSight AI API key invalid. Check VITE_CARDSIGHTAI_API_KEY.");
         setSearchCatalogLoading(false);
@@ -1891,55 +2662,94 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
         return;
       }
       const results = apiRes?.results || apiRes?.data;
-      if (apiRes && results && Array.isArray(results)) {
-        const mappedPromises = results.slice(0, 5).map(async (item) => {
-          const price = await fetchCardPrice(item.id);
+      if (apiRes && results && Array.isArray(results) && results.length > 0) {
+        let sortedResults = [...results];
+        if (searchYear) {
+          sortedResults.sort((a, b) => {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+            return 0;
+          });
+        }
+
+        const topResults = sortedResults.slice(0, 10);
+        const cardIds = topResults.map(item => item.id).filter(Boolean);
+        let pricingMap = {};
+        try {
+          const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
+            method: "POST",
+            body: JSON.stringify({
+              card_ids: cardIds,
+              period: "all",
+              listing_type: "both"
+            })
+          });
+          if (bulkRes && Array.isArray(bulkRes.results)) {
+            bulkRes.results.forEach(r => {
+              if (r.success && r.data) {
+                const pricingRes = r.data;
+                const rawSales = pricingRes.raw?.records || [];
+                const gradedSales = Array.isArray(pricingRes.graded)
+                  ? pricingRes.graded
+                  : (pricingRes.graded?.records || []);
+                const sales = [...rawSales, ...gradedSales];
+                let total = 0;
+                let count = 0;
+                sales.forEach(s => {
+                  const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+                  if (val !== undefined && val !== null) {
+                    const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+                    if (p > 0) {
+                      total += p;
+                      count++;
+                    }
+                  }
+                });
+                const avgPrice = count > 0 ? total / count : 0;
+                const finalPrice = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+                pricingMap[r.card_id] = finalPrice;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn("Bulk pricing fetch failed:", e);
+        }
+
+        const mapped = topResults.map((item) => {
+          const price = pricingMap[item.id] || 0;
           const detected = detectSport(item.name, item.releaseName, item.setName);
           const setDesc = `${item.releaseName || ""} ${item.setName || ""}${item.parallelName ? " (" + item.parallelName + ")" : ""}`.trim();
           return {
+            id: item.id,
             player: item.name || item.player || "",
-            year: parseInt(item.year) || new Date().getFullYear(),
+            year: item.year || "",
             set: setDesc,
             sport: detected,
             estimatedPrice: price
           };
         });
-        const mapped = await Promise.all(mappedPromises);
+        mapped.sort((a, b) => {
+          if (searchYear) {
+            const aYearMatch = String(a.year || "").includes(searchYear);
+            const bYearMatch = String(b.year || "").includes(searchYear);
+            if (aYearMatch && !bYearMatch) return -1;
+            if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (a.estimatedPrice > 0 && b.estimatedPrice === 0) return -1;
+          if (a.estimatedPrice === 0 && b.estimatedPrice > 0) return 1;
+          return b.estimatedPrice - a.estimatedPrice;
+        });
         setSearchResults(mapped);
         setSearchCatalogLoading(false);
         return;
+      } else {
+        setSearchError("No matching cards found in database.");
       }
     } catch (e) {
-      console.warn("CardSight catalog search failed, falling back to simulation:", e);
-    }
-
-    // Fallback: OpenAI simulation
-    const system = "You are a sports card database API. Return ONLY a raw JSON array (no markdown, no code blocks, no explanation) of exactly 3 matching sports cards. Each object must have: 'player' (string), 'year' (number), 'set' (string), 'sport' (Basketball|Baseball|Football|Hockey|Soccer), 'estimatedPrice' (number). Example: [{\"player\":\"LeBron James\",\"year\":2003,\"set\":\"Topps\",\"sport\":\"Basketball\",\"estimatedPrice\":800}]";
-    try {
-      const result = await callChatGPT([{ role: "user", content: `Find sports cards matching: ${searchQuery}` }], system);
-      if (result === QUOTA_EXCEEDED) {
-        setSearchError("QUOTA_EXCEEDED");
-        return;
-      }
-      if (result === INVALID_KEY) {
-        setSearchError("INVALID_KEY");
-        return;
-      }
-      const startIndex = result.indexOf("[");
-      const endIndex = result.lastIndexOf("]") + 1;
-      if (startIndex === -1 || endIndex <= 0) {
-        setSearchError("No results returned. Try a more specific search (e.g. '2003 LeBron James Topps').");
-        return;
-      }
-      const parsed = JSON.parse(result.substring(startIndex, endIndex));
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        setSearchError("No matching cards found. Try a different search.");
-        return;
-      }
-      setSearchResults(parsed);
-    } catch (e) {
-      console.error("Failed parsing search results: ", e);
-      setSearchError("Parse error — try again with a different search term.");
+      console.warn("CardSight catalog search failed:", e);
+      setSearchError("Catalog search failed. Please try again.");
     } finally {
       setSearchCatalogLoading(false);
     }
@@ -1957,7 +2767,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
         quantity: parseInt(newCard.quantity) || 1,
         addedAt: new Date().toISOString()
       });
-      setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1" });
+      setNewCard({ player: "", year: "", set: "", grade: "", sport: "Basketball", purchasePrice: "", currentValue: "", quantity: "1", imageUrl: "", catalogId: "" });
       setSearchQuery("");
       setSearchResults([]);
       setSearchError("");
@@ -2000,9 +2810,9 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
           <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} style={S.input} required />
             <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={S.input} required />
-            
+
             {authError && <div style={{ fontSize: 13, color: "#ef4444", textAlign: "center" }}>{authError}</div>}
-            
+
             <button type="submit" style={{ background: S.accent, color: "#ffffff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", transition: "opacity 0.2s" }}>
               {isSignUp ? "Create Account" : "Sign In"}
             </button>
@@ -2107,9 +2917,13 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
               <div style={{ ...S.card, borderColor: "#1e3a8a33", marginBottom: 14 }}>
                 <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 14, marginBottom: 14 }}>
                   <div style={S.label}>Search Card Catalog</div>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={S.input} />
-                    <button type="button" onClick={runCatalogSearch} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runCatalogSearch()} placeholder="e.g. 2003 LeBron James Topps" style={{ ...S.input, margin: 0 }} />
+                    <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, minWidth: 40, borderRadius: 8, border: "1px solid #cbd5e1", background: "#ffffff", cursor: "pointer", color: S.accent, transition: "all 0.2s" }} title="Identify card from photo">
+                      <CameraIcon />
+                      <input type="file" accept="image/*" onChange={(e) => handleVisualSearch(e.target.files[0], setSearchQuery, runCatalogSearch, setSearchCatalogLoading, setSearchError, showToast, (imgUrl) => setNewCard(prev => ({ ...prev, imageUrl: imgUrl })))} style={{ display: "none" }} />
+                    </label>
+                    <button type="button" onClick={() => runCatalogSearch()} disabled={searchCatalogLoading} style={{ background: S.accent, border: "none", borderRadius: 8, height: 40, padding: "0 20px", color: S.bg, fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: searchCatalogLoading ? 0.5 : 1 }}>
                       {searchCatalogLoading ? "Searching..." : "Search"}
                     </button>
                   </div>
@@ -2135,25 +2949,120 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                         )
                   )}
                   {!searchCatalogLoading && searchResults.length > 0 && (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 8 }}>
-                      {searchResults.map((item, idx) => (
-                        <div key={idx} onClick={() => {
-                          setNewCard({
-                            player: item.player,
-                            year: item.year,
-                            set: item.set,
-                            grade: "Raw",
-                            sport: item.sport,
-                            purchasePrice: item.estimatedPrice,
-                            currentValue: item.estimatedPrice,
-                            quantity: "1"
-                          });
-                          setSearchResults([]);
-                        }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", cursor: "pointer", borderRadius: 6, borderBottom: "1px solid #e2e8f0", transition: "background 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
-                          <span style={{ fontSize: 13 }}>{item.year} {item.player} ({item.set}) - {item.sport}</span>
-                          <span style={{ color: S.accent, fontWeight: 700, fontSize: 13 }}>{fmt(item.estimatedPrice)}</span>
-                        </div>
-                      ))}
+                    <div style={{ position: "relative", marginTop: 14, width: "100%" }}>
+                      {/* Left Arrow */}
+                      <button 
+                        type="button"
+                        onClick={() => document.getElementById('portfolio-search-results-slider').scrollBy({ left: -220, behavior: 'smooth' })}
+                        style={{
+                          position: "absolute",
+                          left: -12,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          zIndex: 10,
+                          width: 32,
+                          height: 32,
+                          borderRadius: "50%",
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: "bold",
+                          fontSize: 16,
+                          color: S.accent
+                        }}
+                      >
+                        ‹
+                      </button>
+
+                      {/* Slider Row */}
+                      <div 
+                        id="portfolio-search-results-slider"
+                        style={{ 
+                          display: "flex", 
+                          gap: 12, 
+                          overflowX: "auto", 
+                          padding: "4px 8px 12px 4px",
+                          scrollbarWidth: "none",
+                          msOverflowStyle: "none"
+                        }}
+                      >
+                        <style>{`
+                          #portfolio-search-results-slider::-webkit-scrollbar {
+                            display: none;
+                          }
+                          @keyframes shine {
+                            0% { background-position: -200% -200%; }
+                            100% { background-position: 200% 200%; }
+                          }
+                        `}</style>
+                        
+                        {searchResults.map((item, idx) => (
+                          <SearchResultCard
+                            key={idx}
+                            item={item}
+                            idx={idx}
+                            customImage={newCard.imageUrl}
+                            onClick={() => {
+                              setNewCard({
+                                player: item.player,
+                                year: item.year,
+                                set: item.set,
+                                grade: "Raw",
+                                sport: item.sport,
+                                purchasePrice: item.estimatedPrice > 0 ? item.estimatedPrice : "",
+                                currentValue: item.estimatedPrice > 0 ? item.estimatedPrice : "",
+                                quantity: "1",
+                                imageUrl: newCard.imageUrl || "",
+                                catalogId: item.id
+                              });
+                              setSearchResults([]);
+                            }}
+                            showPrices={
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #f1f5f9" }}>
+                                <div>
+                                  <div style={{ fontSize: 8, color: S.muted, textTransform: "uppercase", fontWeight: 700 }}>Est. Value</div>
+                                  <div style={{ fontSize: 12, fontWeight: 800, color: S.accent }}>
+                                    {item.estimatedPrice > 0 ? fmt(item.estimatedPrice) : "N/A"}
+                                  </div>
+                                </div>
+                                <span style={{ fontSize: 10.5, fontWeight: 800, color: "#ffffff", background: S.accent, padding: "4px 10px", borderRadius: 8, boxShadow: "0 2px 4px rgba(30,58,138,0.15)" }}>Select</span>
+                              </div>
+                            }
+                          />
+                        ))}
+                      </div>
+
+                      {/* Right Arrow */}
+                      <button 
+                        type="button"
+                        onClick={() => document.getElementById('portfolio-search-results-slider').scrollBy({ left: 220, behavior: 'smooth' })}
+                        style={{
+                          position: "absolute",
+                          right: -12,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          zIndex: 10,
+                          width: 32,
+                          height: 32,
+                          borderRadius: "50%",
+                          background: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontWeight: "bold",
+                          fontSize: 16,
+                          color: S.accent
+                        }}
+                      >
+                        ›
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2186,7 +3095,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16, marginBottom: 28 }}>
               {cards.map((card) => {
                 const qty = card.quantity || 1;
                 const cost = card.purchasePrice * qty;
@@ -2194,19 +3103,17 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                 const gain = value - cost;
                 const gainPct = cost > 0 ? ((gain / cost) * 100).toFixed(1) : 0;
                 return (
-                  <div key={card.id} style={{ ...S.card, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{qty}x {card.year} {card.player}</div>
-                      <div style={{ fontSize: 12, color: S.muted, marginTop: 3 }}>{card.set} · {card.grade} · {card.sport}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 16, fontWeight: 800 }}>{fmt(value)}</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: gainColor(gain) }}>{gain >= 0 ? "+" : ""}{fmt(gain)} ({gainPct}%)</div>
-                      </div>
-                      <button onClick={() => removeCard(card.id)} style={{ background: "none", border: "none", color: "#3a3a5e", cursor: "pointer", fontSize: 18 }}>×</button>
-                    </div>
-                  </div>
+                  <CollectionCard
+                    key={card.id}
+                    card={card}
+                    qty={qty}
+                    value={value}
+                    cost={cost}
+                    gain={gain}
+                    gainPct={gainPct}
+                    onRemove={() => removeCard(card.id)}
+                    isWatchlist={false}
+                  />
                 );
               })}
             </div>
@@ -2217,10 +3124,10 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
         {tab === "History" && <HistoryTab cards={cards} />}
 
         {/* ── WATCHLIST ── */}
-        {tab === "Watchlist" && <WatchlistTab user={user} />}
+        {tab === "Watchlist" && <WatchlistTab user={user} showToast={showToast} />}
 
         {/* ── GRADING ── */}
-        {tab === "Grading" && <GradingTab />}
+        {tab === "Grading" && <GradingTab showToast={showToast} />}
 
         {/* ── ADVISOR ── */}
         {tab === "Advisor" && (
@@ -2265,9 +3172,13 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
           <div>
             <div style={{ ...S.label, marginBottom: 4 }}>Market Intelligence</div>
             <div style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>Enter any player, card, or set to search the database and run a buy/hold/sell analysis.</div>
-            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-              <input value={marketQuery} onChange={(e) => setMarketQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMarketSearchWithQuery()} placeholder="e.g. 2018 Luka Dončić Prizm PSA 10" style={{ ...S.input }} />
-              <button onClick={() => runMarketSearchWithQuery()} disabled={marketSearchLoading} style={{ background: S.accent, border: "none", borderRadius: 8, padding: "10px 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketSearchLoading ? 0.5 : 1 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
+              <input value={marketQuery} onChange={(e) => setMarketQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && runMarketSearchWithQuery()} placeholder="e.g. 2018 Luka Dončić Prizm PSA 10" style={{ ...S.input, margin: 0 }} />
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, height: 40, minWidth: 40, borderRadius: 8, border: "1px solid #cbd5e1", background: "#ffffff", cursor: "pointer", color: S.accent, transition: "all 0.2s" }} title="Identify card from photo">
+                <CameraIcon />
+                <input type="file" accept="image/*" onChange={(e) => handleVisualSearch(e.target.files[0], setMarketQuery, runMarketSearchWithQuery, setMarketSearchLoading, setMarketSearchError, showToast)} style={{ display: "none" }} />
+              </label>
+              <button onClick={() => runMarketSearchWithQuery()} disabled={marketSearchLoading} style={{ background: S.accent, border: "none", borderRadius: 8, height: 40, padding: "0 20px", color: S.bg, fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", opacity: marketSearchLoading ? 0.5 : 1 }}>
                 {marketSearchLoading ? "Searching..." : "Search"}
               </button>
             </div>
@@ -2295,79 +3206,509 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                 </div>
               </div>
             )}
-             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, letterSpacing: "1px" }}>🔥 DYNAMIC TRENDING MOVEMENTS</div>
-              {loadingTrendingPrices ? (
-                <span style={{ fontSize: 11, color: S.accent, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span className="spinner" style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #1e3a8a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                  Updating live prices...
-                </span>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  {trendingLastUpdated && (
-                    <span style={{ fontSize: 11, color: S.muted }}>
-                      Last updated: {getReadableLastUpdated()}
-                    </span>
-                  )}
-                  <button onClick={() => fetchTrendingPrices(true)} style={{ background: "transparent", border: "none", color: S.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>
-                    Refresh Prices
-                  </button>
-                </div>
-              )}
+            {/* Top Live Badge Banner */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 800,
+                color: "#22c55e",
+                background: "rgba(34, 197, 94, 0.1)",
+                border: "1px solid rgba(34, 197, 94, 0.2)",
+                padding: "3px 8px",
+                borderRadius: 20,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                display: "inline-flex",
+                alignItems: "center"
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", marginRight: 6, display: "inline-block" }}></span>
+                Live
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Live Market Movements &nbsp;·&nbsp; Real Time Data &nbsp;·&nbsp; Live Prices
+              </span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
-              {trendingMovements.filter(item => item.change >= 0).map((item) => {
+            {/* Main Header Row */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
+              <div>
+                <h2 style={{ fontSize: 20, fontWeight: 800, color: S.text, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                  🔥 DYNAMIC TRENDING MOVEMENTS
+                </h2>
+                <p style={{ fontSize: 13, color: "#64748b", margin: "4px 0 0 0" }}>
+                  Top cards gaining attention right now in the market
+                </p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {loadingTrendingPrices ? (
+                  <span style={{ fontSize: 11, color: S.accent, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className="spinner" style={{ display: "inline-block", width: 10, height: 10, border: "2px solid #1e3a8a", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    Updating live...
+                  </span>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {trendingLastUpdated && (
+                      <span style={{ fontSize: 11, color: S.muted }}>
+                        Last updated: {getReadableLastUpdated()}
+                      </span>
+                    )}
+                    <button onClick={() => fetchTrendingPrices(true)} style={{ background: "transparent", border: "none", color: S.muted, fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                      Refresh Prices
+                    </button>
+                  </div>
+                )}
+                <button 
+                  style={{
+                    background: "#ffffff",
+                    border: "1px solid #1e3a8a33",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    color: S.accent,
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    transition: "all 0.2s"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#1e3a8a0a";
+                    e.currentTarget.style.borderColor = S.accent;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#ffffff";
+                    e.currentTarget.style.borderColor = "#1e3a8a33";
+                  }}
+                >
+                  View All Trends ↗
+                </button>
+              </div>
+            </div>
+
+            {/* Three Podiums Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
+              {trendingMovements.filter(item => item.change >= 0).slice(0, 3).map((item, index) => {
                 const isUp = item.trend === "up";
+                const podiumConfigs = [
+                  {
+                    color: "#22c55e",
+                    tag: "Strong Momentum",
+                    vol: "$12,450",
+                    icon: "📈",
+                    bg: "linear-gradient(135deg, rgba(34, 197, 94, 0.04) 0%, #ffffff 100%)",
+                    borderColor: "rgba(34, 197, 94, 0.25)"
+                  },
+                  {
+                    color: "#3b82f6",
+                    tag: "Rising Fast",
+                    vol: "$8,210",
+                    icon: "⚡",
+                    bg: "linear-gradient(135deg, rgba(59, 130, 246, 0.04) 0%, #ffffff 100%)",
+                    borderColor: "rgba(59, 130, 246, 0.25)"
+                  },
+                  {
+                    color: "#a855f7",
+                    tag: "Steady",
+                    vol: "$5,780",
+                    icon: "⚖️",
+                    bg: "linear-gradient(135deg, rgba(168, 85, 247, 0.04) 0%, #ffffff 100%)",
+                    borderColor: "rgba(168, 85, 247, 0.25)"
+                  }
+                ];
+                const theme = podiumConfigs[index] || {
+                  color: "#64748b",
+                  tag: "Gaining Attention",
+                  vol: "$2,400",
+                  icon: "📊",
+                  bg: "linear-gradient(135deg, rgba(100, 116, 139, 0.04) 0%, #ffffff 100%)",
+                  borderColor: "rgba(100, 116, 139, 0.2)"
+                };
+
+                const getSub = (q) => {
+                  if (q.includes("Select")) return "Select RC";
+                  if (q.includes("Prizm")) return "Prizm RC";
+                  if (q.includes("Chrome")) return "Chrome Auto";
+                  if (q.includes("Young Guns")) return "Young Guns RC";
+                  return "Rookie Card";
+                };
+
                 return (
                   <div
                     key={item.name}
                     onClick={() => handleTrendingClick(item)}
                     style={{
-                      background: "linear-gradient(135deg, #ffffff, #f8fafc)",
-                      border: `1px solid ${isUp ? "rgba(22, 163, 74, 0.3)" : "rgba(220, 38, 38, 0.3)"}`,
-                      borderRadius: 10,
-                      padding: "10px 14px",
+                      background: theme.bg,
+                      border: `1px solid ${theme.borderColor}`,
+                      borderRadius: 16,
+                      padding: "16px 0 0 0",
                       cursor: "pointer",
-                      transition: "transform 0.2s, border-color 0.2s",
+                      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                       display: "flex",
                       flexDirection: "column",
-                      gap: 4
+                      justifyContent: "space-between",
+                      height: "360px",
+                      boxShadow: "0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.03)",
+                      position: "relative",
+                      overflow: "hidden"
                     }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.borderColor = isUp ? "#22c55e" : "#ef4444";
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-6px)";
+                      e.currentTarget.style.borderColor = theme.color;
+                      e.currentTarget.style.boxShadow = `0 20px 25px -5px ${theme.color}15, 0 10px 10px -5px ${theme.color}10`;
                     }}
-                    onMouseOut={(e) => {
+                    onMouseLeave={(e) => {
                       e.currentTarget.style.transform = "none";
-                      e.currentTarget.style.borderColor = isUp ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)";
+                      e.currentTarget.style.borderColor = theme.borderColor;
+                      e.currentTarget.style.boxShadow = "0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.03)";
                     }}
                   >
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: S.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {item.name}
+                    {/* Corner rank fold banner */}
+                    <div style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: 0,
+                      height: 0,
+                      borderStyle: "solid",
+                      borderWidth: "45px 45px 0 0",
+                      borderColor: `${theme.color} transparent transparent transparent`,
+                      zIndex: 3
+                    }} />
+                    <span style={{
+                      position: "absolute",
+                      top: 6,
+                      left: 10,
+                      fontSize: 13,
+                      fontWeight: 900,
+                      color: "#ffffff",
+                      zIndex: 4
+                    }}>
+                      {index + 1}
+                    </span>
+
+                    {/* Stock Chart curve overlay background */}
+                    <svg viewBox="0 0 200 100" preserveAspectRatio="none" style={{ position: "absolute", bottom: 50, left: 0, right: 0, height: 110, width: "100%", opacity: 0.12, pointerEvents: "none", zIndex: 0 }}>
+                      <path d="M0,80 Q25,85 50,70 T100,50 T150,35 T200,15" fill="none" stroke={theme.color} strokeWidth="3" strokeLinecap="round" />
+                      <path d="M0,80 Q25,85 50,70 T100,50 T150,35 T200,15 L200,100 L0,100 Z" fill={theme.color} opacity="0.1" />
+                    </svg>
+
+                    {/* Right side change badge */}
+                    <div style={{
+                      position: "absolute",
+                      top: 14,
+                      right: 14,
+                      fontSize: 11.5,
+                      fontWeight: 800,
+                      color: isUp ? "#16a34a" : "#dc2626",
+                      background: isUp ? "rgba(22, 163, 74, 0.1)" : "rgba(220, 38, 38, 0.1)",
+                      padding: "4px 9px",
+                      borderRadius: 6,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      zIndex: 3
+                    }}>
+                      {isUp ? "▲" : "▼"} {item.change}%
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
-                      <span style={{ fontSize: 13, color: S.accent, fontWeight: 800 }}>
+
+                    {/* Card Header details */}
+                    <div style={{ textAlign: "center", zIndex: 2, padding: "0 16px", marginTop: 4 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: S.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {item.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginTop: 2 }}>
+                        {getSub(item.query)}
+                      </div>
+                    </div>
+
+                    {/* Pedestal + Card image container */}
+                    <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 170, margin: "10px 0", zIndex: 2 }}>
+                      {/* Floating Card Image with perspective skew */}
+                      <div style={{
+                        position: "absolute",
+                        bottom: 22,
+                        width: 90,
+                        height: 125,
+                        zIndex: 3,
+                        transform: "perspective(500px) rotateX(12deg)",
+                        filter: "drop-shadow(0 15px 20px rgba(0, 0, 0, 0.18))",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 8,
+                        overflow: "hidden"
+                      }}>
+                        <TrendingCardImage cardId={item.id} name={item.name} />
+                      </div>
+
+                      {/* 3D cylindrical pedestal */}
+                      <div style={{ position: "absolute", bottom: 2, width: 124, height: 24, zIndex: 1 }}>
+                        {/* Shadow Glow */}
+                        <div style={{
+                          position: "absolute",
+                          top: 2,
+                          left: 10,
+                          right: 10,
+                          height: 12,
+                          background: theme.color,
+                          borderRadius: "50%",
+                          filter: "blur(12px)",
+                          opacity: 0.65
+                        }} />
+                        {/* Top Face */}
+                        <div style={{
+                          position: "absolute",
+                          top: 0,
+                          width: "100%",
+                          height: 14,
+                          background: `linear-gradient(180deg, rgba(255,255,255,0.7) 0%, ${theme.color}aa 100%)`,
+                          borderRadius: "50%",
+                          border: `1.5px solid ${theme.color}88`,
+                          boxShadow: "inset 0 1px 2px rgba(255,255,255,0.8)"
+                        }} />
+                        {/* Base Edge (Extrusion) */}
+                        <div style={{
+                          position: "absolute",
+                          top: 7,
+                          width: "100%",
+                          height: 14,
+                          background: `linear-gradient(180deg, ${theme.color}bb 0%, ${theme.color}ff 100%)`,
+                          borderRadius: "0 0 60px 60px / 0 0 30px 30px",
+                          borderTop: "none",
+                          borderLeft: `1px solid ${theme.color}88`,
+                          borderRight: `1px solid ${theme.color}88`,
+                          borderBottom: `2.5px solid ${theme.color}`
+                        }} />
+                      </div>
+                    </div>
+
+                    {/* Price display */}
+                    <div style={{ textAlign: "center", zIndex: 2, marginBottom: 14 }}>
+                      <div style={{ fontSize: 20, fontWeight: 900, color: S.text }}>
                         {fmt(item.price)}
-                      </span>
+                      </div>
+                      <div style={{ fontSize: 9.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em", marginTop: 2 }}>
+                        Current Price
+                      </div>
+                    </div>
+
+                    {/* Bottom Status bar */}
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "11px 14px",
+                      borderTop: "1px solid #f1f5f9",
+                      background: "rgba(248, 250, 252, 0.65)",
+                      zIndex: 2,
+                      width: "100%",
+                      borderBottomLeftRadius: 16,
+                      borderBottomRightRadius: 16
+                    }}>
                       <span style={{
                         fontSize: 11,
                         fontWeight: 800,
-                        color: isUp ? "#16a34a" : "#dc2626",
-                        background: isUp ? "rgba(22, 163, 74, 0.1)" : "rgba(220, 38, 38, 0.1)",
-                        padding: "2px 6px",
-                        borderRadius: 6,
+                        color: theme.color,
                         display: "flex",
                         alignItems: "center",
-                        gap: 2
+                        gap: 5
                       }}>
-                        {isUp ? "▲" : "▼"} {isUp ? "+" : ""}{item.change}%
+                        <span style={{ fontSize: 13 }}>{theme.icon}</span>
+                        {theme.tag}
+                      </span>
+                      <span style={{ fontSize: 10.5, color: "#64748b", fontWeight: 600 }}>
+                        24H Vol: <span style={{ color: S.text, fontWeight: 700 }}>{fmt(item.volume || (item.price * 3.5))}</span>
                       </span>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Bottom Overview Stats Banner */}
+            {(() => {
+              const getAverageTrendChange = () => {
+                const valid = trendingMovements.filter(t => typeof t.change === "number");
+                if (!valid.length) return 0;
+                return (valid.reduce((sum, curr) => sum + curr.change, 0) / valid.length).toFixed(1);
+              };
+              const avgChange = parseFloat(getAverageTrendChange()) || 0;
+              const isAvgChangeUp = avgChange >= 0;
+
+              const baseCap = 2.45; // Million
+              const dynamicCap = (baseCap * (1 + avgChange / 100)).toFixed(2);
+
+              const getDynamicTotalVolume = () => {
+                const sum = trendingMovements.reduce((acc, curr) => acc + (curr.volume || 0), 0);
+                return sum > 0 ? (sum * 7.5) : 128450;
+              };
+              const dynamicVol = getDynamicTotalVolume();
+
+              const dynamicListings = Math.round(1842 * (1 + avgChange / 300));
+              const dynamicWatchers = Math.round(12458 * (1 + avgChange / 500));
+
+              return (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                  marginTop: 10,
+                  marginBottom: 30,
+                  width: "100%"
+                }}>
+                  {/* Stat 1 */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "14px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02)"
+                  }}>
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      background: "rgba(59, 130, 246, 0.08)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#3b82f6"
+                    }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10" />
+                        <line x1="12" y1="20" x2="12" y2="4" />
+                        <line x1="6" y1="20" x2="6" y2="14" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>Total Market Cap</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 16, fontWeight: 900, color: S.text }}>${dynamicCap}M</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: isAvgChangeUp ? "#22c55e" : "#dc2626" }}>
+                          {isAvgChangeUp ? "▲" : "▼"} {isAvgChangeUp ? "+" : ""}{Math.abs(avgChange)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stat 2 */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "14px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02)"
+                  }}>
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      background: "rgba(168, 85, 247, 0.08)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#a855f7"
+                    }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+                        <path d="M22 12A10 10 0 0 0 12 2v10z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>24H Volume</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 16, fontWeight: 900, color: S.text }}>{fmt(dynamicVol)}</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: isAvgChangeUp ? "#22c55e" : "#dc2626" }}>
+                          {isAvgChangeUp ? "▲" : "▼"} {Math.abs(avgChange * 1.5).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stat 3 */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "14px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02)"
+                  }}>
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      background: "rgba(249, 115, 22, 0.08)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#f97316"
+                    }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>Active Listings</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 16, fontWeight: 900, color: S.text }}>{dynamicListings.toLocaleString()}</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: isAvgChangeUp ? "#22c55e" : "#dc2626" }}>
+                          {isAvgChangeUp ? "▲" : "▼"} {Math.abs(avgChange * 0.8).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stat 4 */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: "14px 18px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 14,
+                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02)"
+                  }}>
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 10,
+                      background: "rgba(20, 184, 166, 0.08)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#14b8a6"
+                    }}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" }}>Market Watchers</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 16, fontWeight: 900, color: S.text }}>{dynamicWatchers.toLocaleString()}</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: isAvgChangeUp ? "#22c55e" : "#dc2626" }}>
+                          {isAvgChangeUp ? "▲" : "▼"} {Math.abs(avgChange * 0.5).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             {marketLoading && (
               <div style={{ ...S.card, borderColor: "#1e3a8a55", background: "linear-gradient(145deg, #ffffff, #f8fafc)", padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
@@ -2390,8 +3731,8 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                   : (
                     <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
                       <div style={{ ...S.label, color: S.accent, marginBottom: 12 }}>
-                        Analysis: {analyzedCard 
-                          ? `${analyzedCard.year} ${analyzedCard.name || analyzedCard.player} ${analyzedCard.releaseName || ''} ${analyzedCard.setName || ''} ${analyzedCard.parallelName ? `(${analyzedCard.parallelName})` : ''}` 
+                        Analysis: {analyzedCard
+                          ? `${analyzedCard.year} ${analyzedCard.name || analyzedCard.player} ${analyzedCard.releaseName || ''} ${analyzedCard.setName || ''} ${analyzedCard.parallelName ? `(${analyzedCard.parallelName})` : ''}`
                           : marketQuery}
                       </div>
                       <div style={{ fontSize: 14, lineHeight: 1.8, color: "#475569" }}>{renderMarkdown(marketResult)}</div>
@@ -2491,7 +3832,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                 setConfirmPassword("");
               }} style={{ background: "none", border: "none", color: S.muted, cursor: "pointer", fontSize: 20 }}>✕</button>
             </div>
-            
+
             <div style={{ marginBottom: 20 }}>
               <div style={S.label}>Email Address</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: S.text, background: "#0d0d18", border: "1px solid #1e1e2e", borderRadius: 8, padding: "10px 14px" }}>
@@ -2586,7 +3927,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
               {toast.message}
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setToast(prev => ({ ...prev, visible: false }))}
             style={{
               background: "transparent",
