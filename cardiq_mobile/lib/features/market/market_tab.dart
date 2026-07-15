@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../widgets/glass_card.dart';
 import '../../widgets/card_thumbnail.dart';
+import '../../core/services/gemini_service.dart';
 
 class MarketTab extends StatefulWidget {
   const MarketTab({super.key});
@@ -421,62 +422,17 @@ You MUST format your output using EXACTLY the following five bold headings (no v
 
 Keep the analysis professional, specific with numbers, and under 250 words.""";
 
-      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
-      String? reply;
-      dynamic lastError;
-
-      for (final model in models) {
-        try {
-          final res = await http.post(
-            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
-            headers: {
-              "Content-Type": "application/json",
-              "X-goog-api-key": apiKey,
-            },
-            body: jsonEncode({
-              "systemInstruction": {
-                "parts": [{ "text": systemPrompt }]
-              },
-              "contents": [{
-                "role": "user",
-                "parts": [{ "text": "Analyze the sports card market for: \"${card['year']} ${card['name']} ${card['releaseName']} ${card['parallelName']}\"\n\nLive API Data:\n$apiContext" }]
-              }],
-              "generationConfig": {
-                "maxOutputTokens": 2048,
-                "temperature": 0.7
-              }
-            }),
-          ).timeout(const Duration(seconds: 25));
-
-          if (res.statusCode == 200) {
-            final data = jsonDecode(res.body);
-            final candidates = data['candidates'] as List?;
-            if (candidates != null && candidates.isNotEmpty) {
-              final content = candidates[0]['content'];
-              if (content != null) {
-                final parts = content['parts'] as List?;
-                if (parts != null && parts.isNotEmpty) {
-                  reply = parts[0]['text'] as String?;
-                  if (reply != null && reply.trim().isNotEmpty) {
-                    break;
-                  }
-                }
-              }
-            }
-          } else {
-            lastError = "HTTP ${res.statusCode}: ${res.body}";
-          }
-        } catch (e) {
-          lastError = e;
-        }
-      }
-
-      if (reply == null) {
-        throw Exception(lastError ?? "Empty response from Gemini.");
-      }
+      final reply = await GeminiService.callGemini(
+        systemInstruction: systemPrompt,
+        contents: [{
+          "role": "user",
+          "parts": [{ "text": "Analyze the sports card market for: \"${card['year']} ${card['name']} ${card['releaseName']} ${card['parallelName']}\"\n\nLive API Data:\n$apiContext" }]
+        }],
+        temperature: 0.7,
+      );
 
       setState(() {
-        _analysisResult = reply!;
+        _analysisResult = reply;
       });
     } catch (e) {
       setState(() {

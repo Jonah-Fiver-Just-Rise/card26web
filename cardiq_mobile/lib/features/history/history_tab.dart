@@ -87,50 +87,27 @@ class _HistoryTabState extends State<HistoryTab> {
     List<String> labels = [];
     List<double> values = [];
 
-    bool isDemo = widget.cards.isEmpty || (totalCost <= 0 && totalValue <= 0);
-    double activeCost = isDemo ? 3200.0 : totalCost;
-    double activeValue = isDemo ? 4810.0 : totalValue;
+    bool isEmpty = widget.cards.isEmpty || (totalCost <= 0 && totalValue <= 0);
+    double activeCost = totalCost;
+    double activeValue = totalValue;
 
-    if (isDemo) {
+    if (isEmpty) {
       if (_timeFilter == "1D") {
         labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
-        final norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
       } else if (_timeFilter == "1W") {
         labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
-        final norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
       } else if (_timeFilter == "1M") {
         labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
-        final norm = [0.0, 0.22, 0.55, 0.78, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
       } else if (_timeFilter == "3Y") {
         labels = ["3y ago", "2y ago", "1y ago", "Today"];
-        final norm = [0.0, 0.45, 0.78, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
       } else if (_timeFilter == "5Y") {
         labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
-        final norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
       } else { // 1Y
         final months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
-        final norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
-        for (int i = 0; i < months.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-          labels.add(months[i]);
-        }
-        labels.add("Today");
-        values.add(activeValue);
+        labels = [...months, "Today"];
+      }
+      for (int i = 0; i < labels.length; i++) {
+        values.add(0.0);
       }
     } else {
       if (_timeFilter == "1D") {
@@ -172,62 +149,6 @@ class _HistoryTabState extends State<HistoryTab> {
         }
         labels.add("Today");
         values.add(totalValue);
-      }
-    }
-
-    // Check if values computed to all zeros (edge case), if so fall back to demo
-    bool allZeros = true;
-    for (final v in values) {
-      if (v > 0) {
-        allZeros = false;
-        break;
-      }
-    }
-
-    if (allZeros && !isDemo) {
-      values.clear();
-      labels.clear();
-      double activeCost = totalCost > 0 ? totalCost : 3200;
-      double activeValue = totalValue > 0 ? totalValue : 4810;
-      if (_timeFilter == "1D") {
-        labels = ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"];
-        final norm = [0.0, 0.08, 0.25, 0.18, 0.65, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
-      } else if (_timeFilter == "1W") {
-        labels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "1d ago", "Today"];
-        final norm = [0.0, 0.15, 0.35, 0.25, 0.58, 0.82, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
-      } else if (_timeFilter == "1M") {
-        labels = ["4w ago", "3w ago", "2w ago", "1w ago", "Today"];
-        final norm = [0.0, 0.22, 0.55, 0.78, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
-      } else if (_timeFilter == "3Y") {
-        labels = ["3y ago", "2y ago", "1y ago", "Today"];
-        final norm = [0.0, 0.45, 0.78, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
-      } else if (_timeFilter == "5Y") {
-        labels = ["5y ago", "4y ago", "3y ago", "2y ago", "1y ago", "Today"];
-        final norm = [0.0, 0.15, 0.38, 0.62, 0.85, 1.0];
-        for (int i = 0; i < labels.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-        }
-      } else { // 1Y
-        final months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
-        final norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
-        for (int i = 0; i < months.length; i++) {
-          values.add(activeCost + (activeValue - activeCost) * norm[i]);
-          labels.add(months[i]);
-        }
-        labels.add("Today");
-        values.add(activeValue);
       }
     }
 
@@ -416,75 +337,92 @@ class _HistoryTabState extends State<HistoryTab> {
                 // FL Chart
                 SizedBox(
                   height: 180,
-                  child: LineChart(
-                    LineChartData(
-                      gridData: const FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        horizontalInterval: 1000,
-                      ),
-                      titlesData: FlTitlesData(
-                        show: true,
-                        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 38,
-                            getTitlesWidget: (v, meta) {
-                              if (v == meta.min || v == meta.max) {
-                                return const SizedBox();
-                              }
-                              // Formatter
-                              if (activeValue < 100.0) {
-                                return Text(
-                                  "\$${v.toStringAsFixed(1)}",
-                                  style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
-                                );
-                              } else {
-                                return Text(
-                                  "\$${(v / 1000).toStringAsFixed(1)}k",
-                                  style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
-                                );
-                              }
-                            },
+                  child: isEmpty
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.trending_up, size: 36, color: AppColors.textMuted),
+                            SizedBox(height: 8),
+                            Text(
+                              "No History Data Available",
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              "Add cards to your Portfolio to start tracking history.",
+                              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                            ),
+                          ],
+                        )
+                      : LineChart(
+                          LineChartData(
+                            gridData: const FlGridData(
+                              show: true,
+                              drawVerticalLine: false,
+                              horizontalInterval: 1000,
+                            ),
+                            titlesData: FlTitlesData(
+                              show: true,
+                              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                              leftTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 38,
+                                  getTitlesWidget: (v, meta) {
+                                    if (v == meta.min || v == meta.max) {
+                                      return const SizedBox();
+                                    }
+                                    // Formatter
+                                    if (activeValue < 100.0) {
+                                      return Text(
+                                        "\$${v.toStringAsFixed(1)}",
+                                        style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
+                                      );
+                                    } else {
+                                      return Text(
+                                        "\$${(v / 1000).toStringAsFixed(1)}k",
+                                        style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                              bottomTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 18,
+                                  interval: (labels.length / 4).clamp(1, double.infinity),
+                                  getTitlesWidget: (v, meta) {
+                                    int idx = v.toInt();
+                                    if (idx >= 0 && idx < labels.length) {
+                                      return Text(
+                                        labels[idx],
+                                        style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
+                                      );
+                                    }
+                                    return const SizedBox();
+                                  },
+                                ),
+                              ),
+                            ),
+                            borderData: FlBorderData(show: false),
+                            lineBarsData: [
+                              LineChartBarData(
+                                spots: spots,
+                                isCurved: true,
+                                color: AppColors.gold,
+                                barWidth: 2,
+                                isStrokeCapRound: true,
+                                dotData: const FlDotData(show: false),
+                                belowBarData: BarAreaData(
+                                  show: true,
+                                  color: AppColors.gold.withValues(alpha: 0.08),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 18,
-                            interval: (labels.length / 4).clamp(1, double.infinity),
-                            getTitlesWidget: (v, meta) {
-                              int idx = v.toInt();
-                              if (idx >= 0 && idx < labels.length) {
-                                return Text(
-                                  labels[idx],
-                                  style: const TextStyle(color: AppColors.textMuted, fontSize: 8),
-                                );
-                              }
-                              return const SizedBox();
-                            },
-                          ),
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          color: AppColors.gold,
-                          barWidth: 2,
-                          isStrokeCapRound: true,
-                          dotData: const FlDotData(show: false),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: AppColors.gold.withValues(alpha: 0.08),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ],
             ),

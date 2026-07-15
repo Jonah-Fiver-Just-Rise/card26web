@@ -8,6 +8,7 @@ import '../../widgets/glass_card.dart';
 import '../../widgets/card_thumbnail.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/gemini_service.dart';
 
 class PortfolioTab extends StatefulWidget {
   final String uid;
@@ -188,6 +189,43 @@ class _PortfolioTabState extends State<PortfolioTab> {
                 };
               }).toList();
 
+              final RegExp yearRegex = RegExp(r'\b\d{4}\b');
+              final Match? yearMatch = yearRegex.firstMatch(query);
+              final int? searchYear = yearMatch != null ? int.tryParse(yearMatch.group(0) ?? '') : null;
+              final bool isRookieQuery = query.toLowerCase().contains(RegExp(r'\b(rc|rookie|rookies)\b'));
+
+              parsed.sort((a, b) {
+                // Rule 1: Prioritize explicit year match
+                if (searchYear != null) {
+                  final int aYear = a['year'] as int? ?? 0;
+                  final int bYear = b['year'] as int? ?? 0;
+                  final bool aMatches = aYear == searchYear;
+                  final bool bMatches = bYear == searchYear;
+                  if (aMatches && !bMatches) return -1;
+                  if (!aMatches && bMatches) return 1;
+                }
+
+                // Rule 2: Prioritize older cards if asking for a rookie card
+                if (isRookieQuery) {
+                  final int aYear = a['year'] as int? ?? 9999;
+                  final int bYear = b['year'] as int? ?? 9999;
+                  if (aYear != bYear) {
+                    return aYear.compareTo(bYear);
+                  }
+                }
+
+                // Rule 3: Prioritize cards with known pricing comps (non-zero value)
+                final double aPrice = a['estimatedPrice'] as double? ?? 0.0;
+                final double bPrice = b['estimatedPrice'] as double? ?? 0.0;
+                final bool aHasPrice = aPrice > 0.0;
+                final bool bHasPrice = bPrice > 0.0;
+                if (aHasPrice && !bHasPrice) return -1;
+                if (!aHasPrice && bHasPrice) return 1;
+
+                // Rule 4: Sort by price descending
+                return bPrice.compareTo(aPrice);
+              });
+
               setModalState(() {
                 _searchResults = parsed;
                 _searchingCatalog = false;
@@ -203,66 +241,14 @@ class _PortfolioTabState extends State<PortfolioTab> {
 
     // Fallback: Gemini simulation
     try {
-      final apiKey = AppConstants.geminiApiKey;
-      if (apiKey.isEmpty || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
-        throw Exception("Gemini API key is not configured.");
-      }
-
-      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
-      String? reply;
-      dynamic lastError;
-
-      for (final model in models) {
-        try {
-          final res = await http.post(
-            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
-            headers: {
-              "Content-Type": "application/json",
-              "X-goog-api-key": apiKey,
-            },
-            body: jsonEncode({
-              "systemInstruction": {
-                "parts": [{
-                  "text": "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks. Do not wrap in ```json or any other formatting."
-                }]
-              },
-              "contents": [{
-                "role": "user",
-                "parts": [{"text": "Search query: $query"}]
-              }],
-              "generationConfig": {
-                "maxOutputTokens": 2048,
-                "temperature": 0.2
-              }
-            }),
-          );
-
-          if (res.statusCode == 200) {
-            final data = jsonDecode(res.body);
-            final candidates = data['candidates'] as List?;
-            if (candidates != null && candidates.isNotEmpty) {
-              final content = candidates[0]['content'];
-              if (content != null) {
-                final parts = content['parts'] as List?;
-                if (parts != null && parts.isNotEmpty) {
-                  reply = parts[0]['text'] as String?;
-                  if (reply != null && reply.trim().isNotEmpty) {
-                    break;
-                  }
-                }
-              }
-            }
-          } else {
-            lastError = "HTTP ${res.statusCode}: ${res.body}";
-          }
-        } catch (e) {
-          lastError = e;
-        }
-      }
-
-      if (reply == null) {
-        throw Exception(lastError ?? "Empty response from Gemini.");
-      }
+      final reply = await GeminiService.callGemini(
+        systemInstruction: "You are a sports card database API. Return a valid JSON array of objects representing the top 5 closest matching real sports cards matching the user query. Each object must have properties: 'player', 'year' (number), 'set' (product line/brand name), 'sport' (one of: Basketball, Baseball, Football, Hockey, Soccer), and 'estimatedPrice' (number). Return ONLY the raw JSON block without markdown formatting or code blocks. Do not wrap in ```json or any other formatting.",
+        contents: [{
+          "role": "user",
+          "parts": [{"text": "Search query: $query"}]
+        }],
+        temperature: 0.2,
+      );
 
       String cleanedResult = reply.trim();
       if (cleanedResult.contains("```")) {
@@ -368,66 +354,14 @@ class _PortfolioTabState extends State<PortfolioTab> {
 
     // Fallback: Gemini simulation
     try {
-      final apiKey = AppConstants.geminiApiKey;
-      if (apiKey.isEmpty || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
-        throw Exception("Gemini API key is not configured.");
-      }
-
-      final models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
-      String? reply;
-      dynamic lastError;
-
-      for (final model in models) {
-        try {
-          final res = await http.post(
-            Uri.parse("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"),
-            headers: {
-              "Content-Type": "application/json",
-              "X-goog-api-key": apiKey,
-            },
-            body: jsonEncode({
-              "systemInstruction": {
-                "parts": [{
-                  "text": "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450)."
-                }]
-              },
-              "contents": [{
-                "role": "user",
-                "parts": [{"text": "Estimated market value of sports card: ${_yearController.text} $player ${_setController.text} ${_gradeController.text}"}]
-              }],
-              "generationConfig": {
-                "maxOutputTokens": 2048,
-                "temperature": 0.2
-              }
-            }),
-          );
-
-          if (res.statusCode == 200) {
-            final data = jsonDecode(res.body);
-            final candidates = data['candidates'] as List?;
-            if (candidates != null && candidates.isNotEmpty) {
-              final content = candidates[0]['content'];
-              if (content != null) {
-                final parts = content['parts'] as List?;
-                if (parts != null && parts.isNotEmpty) {
-                  reply = parts[0]['text'] as String?;
-                  if (reply != null && reply.trim().isNotEmpty) {
-                    break;
-                  }
-                }
-              }
-            }
-          } else {
-            lastError = "HTTP ${res.statusCode}: ${res.body}";
-          }
-        } catch (e) {
-          lastError = e;
-        }
-      }
-
-      if (reply == null) {
-        throw Exception(lastError ?? "Empty response from Gemini.");
-      }
+      final reply = await GeminiService.callGemini(
+        systemInstruction: "You are a sports card valuation tool. Reply with ONLY a single raw number representing the estimated market value of the card requested. No dollar signs, no units, no text (e.g. 450).",
+        contents: [{
+          "role": "user",
+          "parts": [{"text": "Estimated market value of sports card: ${_yearController.text} $player ${_setController.text} ${_gradeController.text}"}]
+        }],
+        temperature: 0.2,
+      );
 
       final double price = double.tryParse(reply.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
       _valueController.text = price.toStringAsFixed(2);

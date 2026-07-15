@@ -90,7 +90,7 @@ const detectSport = (name, releaseName, setName) => {
 const gainColor = (n) => (n >= 0 ? "#16a34a" : "#dc2626");
 const S = { // shared inline style tokens
   card: { background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "16px 18px", boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.05)" },
-  label: { fontSize: 11, color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 },
+  label: { fontSize: 13, color: "#000000", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 },
   input: { background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: "10px 14px", color: "#0f172a", fontSize: 14, outline: "none", width: "100%" },
   accent: "#1e3a8a", // slightly darker gold for better contrast on white backgrounds
   bg: "#ffffff",
@@ -170,6 +170,9 @@ const callChatGPT = async (messages, system) => {
 
   const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
   let lastError = null;
+  let isQuotaExceeded = false;
+
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
   // Gemini requires strict user/model alternation, starting with "user"
   // Build a clean alternating conversation from messages
@@ -197,55 +200,73 @@ const callChatGPT = async (messages, system) => {
   };
 
   for (const model of models) {
-    try {
-      const res = await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-goog-api-key": geminiKey.trim()
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: system }]
+    let retryCount = 0;
+    const maxRetries = 3;
+    while (retryCount < maxRetries) {
+      try {
+        const res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-goog-api-key": geminiKey.trim()
             },
-            contents: buildGeminiContents(messages),
-            generationConfig: {
-              maxOutputTokens: 2048,
-              temperature: 0.7
-            }
-          })
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: system }]
+              },
+              contents: buildGeminiContents(messages),
+              generationConfig: {
+                maxOutputTokens: 2048,
+                temperature: 0.7
+              }
+            })
+          }
+        );
+
+        // 429 = quota exceeded — wait and retry
+        if (res.status === 429) {
+          retryCount++;
+          console.warn(`Gemini quota exceeded (429) for model ${model}. Retry ${retryCount}/${maxRetries} after delay...`);
+          isQuotaExceeded = true;
+          if (retryCount < maxRetries) {
+            // Exponential backoff: 2s, 4s, 8s
+            await delay(Math.pow(2, retryCount) * 1000);
+            continue;
+          }
+          break; // Try next model or fail
         }
-      );
 
-      // 429 = quota exceeded, 401 = invalid key — stop immediately
-      if (res.status === 429) {
-        console.warn(`Gemini quota exceeded (429).`);
-        return QUOTA_EXCEEDED;
-      }
-      if (res.status === 401) {
-        console.error(`Gemini API key invalid (401). Check VITE_GEMINI_API_KEY in your env vars.`);
-        return INVALID_KEY;
-      }
+        // 401 = invalid key — stop immediately
+        if (res.status === 401) {
+          console.error(`Gemini API key invalid (401). Check VITE_GEMINI_API_KEY in your env vars.`);
+          return INVALID_KEY;
+        }
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error?.message || `HTTP ${res.status} ${res.statusText}`);
-      }
-      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
-      }
-      throw new Error("Empty response from model.");
-    } catch (err) {
-      if (err.name === "AbortError") {
-        console.warn(`Model ${model} timed out.`);
-        lastError = new Error("Request timed out after 30s. Please try again.");
-      } else {
-        console.warn(`Model ${model} failed:`, err);
-        lastError = err;
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error?.message || `HTTP ${res.status} ${res.statusText}`);
+        }
+        if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          return data.candidates[0].content.parts[0].text;
+        }
+        throw new Error("Empty response from model.");
+      } catch (err) {
+        if (err.name === "AbortError") {
+          console.warn(`Model ${model} timed out.`);
+          lastError = new Error("Request timed out after 30s. Please try again.");
+        } else {
+          console.warn(`Model ${model} failed:`, err);
+          lastError = err;
+        }
+        break; // Try next model
       }
     }
+  }
+
+  if (isQuotaExceeded) {
+    return QUOTA_EXCEEDED;
   }
   return `⚠️ ${lastError ? lastError.message : "Service Unavailable. Please try again."}`;
 };
@@ -952,12 +973,18 @@ function GradingTab({ showToast }) {
             psa9Value: price > 0 ? price * 1.1 : 0
           };
         });
+        const isRookieQuery = /rc|rookie|rookies/i.test(q);
         mapped.sort((a, b) => {
           if (searchYear) {
             const aYearMatch = String(a.year || "").includes(searchYear);
             const bYearMatch = String(b.year || "").includes(searchYear);
             if (aYearMatch && !bYearMatch) return -1;
             if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (isRookieQuery) {
+            const aYear = parseInt(a.year) || 9999;
+            const bYear = parseInt(b.year) || 9999;
+            if (aYear !== bYear) return aYear - bYear;
           }
           if (a.rawValue > 0 && b.rawValue === 0) return -1;
           if (a.rawValue === 0 && b.rawValue > 0) return 1;
@@ -1093,9 +1120,9 @@ function GradingTab({ showToast }) {
                   onClick={() => {
                     setForm({
                       player: `${item.year} ${item.player} (${item.set})`,
-                      rawValue: item.rawValue > 0 ? item.rawValue : "",
-                      psa10Est: item.psa10Value > 0 ? item.psa10Value : "",
-                      psa9Est: item.psa9Value > 0 ? item.psa9Value : "",
+                      rawValue: item.rawValue > 0 ? parseFloat(Number(item.rawValue).toFixed(2)) : "",
+                      psa10Est: item.psa10Value > 0 ? parseFloat(Number(item.psa10Value).toFixed(2)) : "",
+                      psa9Est: item.psa9Value > 0 ? parseFloat(Number(item.psa9Value).toFixed(2)) : "",
                       gradingCost: "22",
                       tier: "Value"
                     });
@@ -1388,12 +1415,18 @@ function WatchlistTab({ user, showToast }) {
             estimatedPrice: price
           };
         });
+        const isRookieQuery = /rc|rookie|rookies/i.test(q);
         mapped.sort((a, b) => {
           if (searchYear) {
             const aYearMatch = String(a.year || "").includes(searchYear);
             const bYearMatch = String(b.year || "").includes(searchYear);
             if (aYearMatch && !bYearMatch) return -1;
             if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (isRookieQuery) {
+            const aYear = parseInt(a.year) || 9999;
+            const bYear = parseInt(b.year) || 9999;
+            if (aYear !== bYear) return aYear - bYear;
           }
           if (a.estimatedPrice > 0 && b.estimatedPrice === 0) return -1;
           if (a.estimatedPrice === 0 && b.estimatedPrice > 0) return 1;
@@ -1888,17 +1921,9 @@ function HistoryTab({ cards }) {
       points.push({ month: "Today", value: totalValue });
     }
 
-    // Fallback if all values are 0 (e.g. empty portfolio), show beautiful mock data
+    // Fallback if all values are 0 (e.g. empty portfolio), just return points as-is
     if (points.every(p => p.value === 0)) {
-      const demoVal = 4810;
-      const demoCost = 3200;
-      const norm = [0.0, 0.24, 0.37, 0.26, 0.47, 0.63, 0.55, 0.74, 0.85, 1.0, 0.89, 0.85];
-      if (timeFilter === "1D") {
-        return ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "Today"].map((h, idx) => ({ month: h, value: demoCost + (demoVal - demoCost) * [0, 0.1, 0.2, 0.3, 0.6, 1][idx] }));
-      }
-      const months = ["Jan '24", "Feb '24", "Mar '24", "Apr '24", "May '24", "Jun '24", "Jul '24", "Aug '24", "Sep '24", "Oct '24", "Nov '24", "Dec '24"];
-      const historyData = months.map((m, idx) => ({ month: m, value: demoCost + (demoVal - demoCost) * norm[idx] }));
-      return [...historyData, { month: "Today", value: demoVal }];
+      return points;
     }
 
     return points;
@@ -1919,6 +1944,8 @@ function HistoryTab({ cards }) {
     if (timeFilter === "5Y") return "5 years ago";
     return data[0].month;
   };
+
+  const isEmpty = cards.length === 0 || (totalCost === 0 && totalValue === 0);
 
   return (
     <div>
@@ -1960,15 +1987,23 @@ function HistoryTab({ cards }) {
             ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => totalValue < 100 ? (totalValue < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`) : `$${(v / 1000).toFixed(1)}k`} />
-            <Tooltip content={<ChartTooltip />} />
-            <Line type="monotone" dataKey="value" stroke="#1e3a8a" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: "#1e3a8a", stroke: "#ffffff", strokeWidth: 2 }} />
-          </LineChart>
-        </ResponsiveContainer>
+        {isEmpty ? (
+          <div style={{ height: 240, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 32 }}>📈</span>
+            <div style={{ fontSize: 14, fontWeight: 700, color: S.text }}>No History Data Available</div>
+            <div style={{ fontSize: 12, color: S.muted }}>Add sports cards to your Portfolio tab to start tracking your history.</div>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="month" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => totalValue < 100 ? (totalValue < 10 ? `$${v.toFixed(2)}` : `$${v.toFixed(0)}`) : `$${(v / 1000).toFixed(1)}k`} />
+              <Tooltip content={<ChartTooltip />} />
+              <Line type="monotone" dataKey="value" stroke="#1e3a8a" strokeWidth={2.5} dot={false} activeDot={{ r: 5, fill: "#1e3a8a", stroke: "#ffffff", strokeWidth: 2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="grid-2">
@@ -2105,12 +2140,12 @@ export default function App() {
     return unsubscribe;
   }, [user]);
 
-  // Read Chat History from Firestore
   useEffect(() => {
     if (!user) return;
     const unsubscribe = onSnapshot(doc(db, `users/${user.uid}/chats`, "history"), (docSnap) => {
       if (docSnap.exists() && docSnap.data().messages) {
-        setChatMessages(docSnap.data().messages);
+        const cleaned = docSnap.data().messages.filter(m => m.content && !m.content.includes("additionalCardContext is not defined") && !m.content.includes("Something went wrong"));
+        setChatMessages(cleaned);
       }
     });
     return unsubscribe;
@@ -2179,6 +2214,7 @@ export default function App() {
 
   const sendChat = async () => {
     if (!chatInput.trim() || chatLoading) return;
+    const originalInput = chatInput;
     const userMsg = { role: "user", content: chatInput };
     const newHistory = [...chatMessages, userMsg];
     setChatMessages(newHistory);
@@ -2187,6 +2223,154 @@ export default function App() {
     await saveChatHistory(newHistory);
 
     try {
+      let additionalCardContext = "";
+      // Clean query using a stop-words set to extract names/card queries cleanly
+      const stopWords = new Set([
+        "should", "i", "buy", "sell", "hold", "do", "you", "think", "what", "is", "how", "much", "about", 
+        "card", "rookie", "rc", "cardiq", "advisor", "shall", "buys", "him", "he", "hot", "player", "now",
+        "the", "a", "an", "for", "check", "me", "please", "tell", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "having", "does", "did", "doing", "and", "but", "or", "as", "if", "because",
+        "of", "at", "by", "with", "against", "between", "into", "through", "during", "before", "after",
+        "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again",
+        "further", "then", "once", "here", "there", "when", "where", "why", "all", "any", "both", "each",
+        "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+        "than", "too", "very", "can", "will", "just", "would", "could", "want", "gets"
+      ]);
+      const cleanedQuery = originalInput
+        .toLowerCase()
+        .replace(/[^\w\s]/g, "")
+        .split(/\s+/)
+        .filter(w => w && !stopWords.has(w))
+        .join(" ")
+        .trim();
+
+      // Step 1: Query CardSight AI / catalog search
+      try {
+        let searchRes = null;
+        if (cleanedQuery.length > 2) {
+          console.log(`[Advisor Chat] Cleaned search term: "${cleanedQuery}"`);
+          // Try AI query first
+          try {
+            searchRes = await callCardSightAPI(`/v1/ai/query`, {
+              method: "POST",
+              body: JSON.stringify({ query: cleanedQuery })
+            });
+          } catch (e) {
+            console.warn("AI query endpoint failed, falling back to catalog search");
+          }
+          
+          // Fallback to fuzzy search
+          if (!searchRes || !searchRes.results || searchRes.results.length === 0) {
+            console.log(`[Advisor Chat] Searching catalog for: "${cleanedQuery}"`);
+            searchRes = await callCardSightAPI(`/v1/catalog/search?q=${encodeURIComponent(cleanedQuery)}&type=card&take=5`);
+          }
+        }
+
+        const results = searchRes?.results || searchRes?.data;
+        if (searchRes && Array.isArray(results) && results.length > 0) {
+          // We have matching cards! Let's pull pricing in bulk to see their current values
+          const topCards = results.slice(0, 5);
+          const cardIds = topCards.map(c => c.id).filter(Boolean);
+          
+          let bulkPricingMap = {};
+          try {
+            const bulkRes = await callCardSightAPI(`/v1/pricing/`, {
+              method: "POST",
+              body: JSON.stringify({
+                card_ids: cardIds,
+                period: "all",
+                listing_type: "both"
+              })
+            });
+            if (bulkRes && Array.isArray(bulkRes.results)) {
+              bulkRes.results.forEach(r => {
+                if (r.success && r.data) {
+                  const pricingRes = r.data;
+                  const rawSales = pricingRes.raw?.records || [];
+                  const gradedSales = Array.isArray(pricingRes.graded) ? pricingRes.graded : (pricingRes.graded?.records || []);
+                  const sales = [...rawSales, ...gradedSales];
+                  let total = 0, count = 0;
+                  sales.forEach(s => {
+                    const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+                    if (val !== undefined && val !== null) {
+                      const p = parseFloat(String(val).replace(/[^0-9.]/g, '')) || 0;
+                      if (p > 0) { total += p; count++; }
+                    }
+                  });
+                  const avgPrice = count > 0 ? total / count : 0;
+                  bulkPricingMap[r.card_id] = pricingRes.averagePrice || pricingRes.average || avgPrice || 0;
+                }
+              });
+            }
+          } catch (e) {
+            console.warn("Bulk pricing fetch for advisor failed:", e);
+          }
+
+          // Let's build a clean list of top cards with their average prices
+          const topCardsSummary = topCards.map((c, i) => {
+            const price = bulkPricingMap[c.id] || 0;
+            const priceStr = price > 0 ? fmt(price) : "N/A";
+            return `${i+1}. ${c.year} ${c.player || c.name} (${c.releaseName || ''} ${c.setName || ''}) - Est. Value: ${priceStr}`;
+          }).join("\n");
+
+          // Let's also fetch full historical sales & active listings for the top matched card to get detailed trend data
+          const mainCard = topCards[0];
+          const mainCardId = mainCard.id;
+          let compsList = "";
+          let activeList = "";
+          let yearlyTrendStr = "";
+
+          try {
+            const pricingRes = await callCardSightAPI(`/v1/pricing/${mainCardId}`);
+            if (pricingRes) {
+              const rawSales = pricingRes.raw?.records || [];
+              const gradedSales = Array.isArray(pricingRes.graded) ? pricingRes.graded : (pricingRes.graded?.records || []);
+              const sales = [...rawSales, ...gradedSales];
+              
+              // Sort sales chronologically to get historical price trend (last 1 year)
+              const sortedSales = [...sales].sort((a, b) => new Date(a.date || a.sold_date) - new Date(b.date || b.sold_date));
+              if (sortedSales.length > 1) {
+                const firstSale = sortedSales[0];
+                const lastSale = sortedSales[sortedSales.length - 1];
+                const firstVal = firstSale.price !== undefined ? firstSale.price : (firstSale.price_usd !== undefined ? firstSale.price_usd : firstSale.value);
+                const lastVal = lastSale.price !== undefined ? lastSale.price : (lastSale.price_usd !== undefined ? lastSale.price_usd : lastSale.value);
+                const firstDate = firstSale.date || firstSale.sold_date || 'Past';
+                const lastDate = lastSale.date || lastSale.sold_date || 'Recent';
+                const diffPct = firstVal > 0 ? (((lastVal - firstVal) / firstVal) * 100).toFixed(1) : 0;
+                yearlyTrendStr = `Historical Price Trend (Last 1 Year) for "${mainCard.year} ${mainCard.player || mainCard.name}":\n- Starting Price on ${firstDate}: ${fmt(firstVal)}\n- Latest Price on ${lastDate}: ${fmt(lastVal)}\n- Change over the period: ${diffPct > 0 ? '+' : ''}${diffPct}%`;
+              }
+
+              compsList = sales.slice(0, 8).map(s => {
+                const val = s.price !== undefined ? s.price : (s.price_usd !== undefined ? s.price_usd : s.value);
+                const date = s.date || s.sold_date || 'Recent';
+                const grade = s.grade || 'Raw';
+                return `- Sold Date: ${date}, Price: ${fmt(val)}, Grade: ${grade}`;
+              }).join("\n");
+            }
+          } catch (e) {
+            console.warn("Pricing comps fetch for advisor failed:", e);
+          }
+
+          try {
+            const marketRes = await callCardSightAPI(`/v1/marketplace/${mainCardId}`);
+            if (marketRes) {
+              const records = marketRes.raw?.records || (Array.isArray(marketRes.raw) ? marketRes.raw : []);
+              activeList = records.slice(0, 5).map(a => {
+                const val = a.price !== undefined ? a.price : (a.price_usd !== undefined ? a.price_usd : a.value);
+                return `- Active Listing: ${a.title || mainCard.name}, Price: ${fmt(val)}`;
+              }).join("\n");
+            }
+          } catch (e) {
+            console.warn("Marketplace fetch for advisor failed:", e);
+          }
+
+          additionalCardContext = `\n\nLive API data gathered for "${mainCard.player || mainCard.name}":\n\nTop Cards Found in Catalog:\n${topCardsSummary}\n\n${yearlyTrendStr || "Historical 1-year cost data trend: N/A (single sale record or new player)."}\n\nRecent Pricing Comps:\n${compsList || "None found."}\n\nActive Marketplace Listings:\n${activeList || "None found."}`;
+          console.log("[Advisor Chat] Appended live context successfully!");
+        }
+      } catch (errEx) {
+        console.warn("CardSight pre-gathering failed:", errEx);
+      }
+
       const ctx = cards.map((c) => `${c.quantity || 1}x ${c.year} ${c.player} (${c.set}, ${c.grade}) — bought ${fmt(c.purchasePrice)}, now ${fmt(c.currentValue)}`).join("\n");
       const trendsCtx = trendingMovements.map(t => `${t.name}: current price ${fmt(t.price)} (${t.change >= 0 ? '+' : ''}${t.change}% ${t.trend === 'up' ? '📈' : '📉'})`).join("\n");
 
@@ -2198,9 +2382,10 @@ Total Invested: ${fmt(totalCost)} | Current Value: ${fmt(totalValue)} | Return: 
 
 Current Market Trends:
 ${trendsCtx}
+${additionalCardContext}
 
 Instructions:
-- Take all portfolio details and current market trends, news, and pricing into account.
+- IMPORTANT: Prioritize the live API data provided above (under Live API data gathered) as the absolute source of truth for pricing, comps, and trends. Never claim there is no pricing data, no completed sales, or that the market is undeveloped if estimated values or sales are listed in the live API data.
 - Act as a decisive financial advisor. Tell the client exactly when to BUY, SELL, or HOLD specific cards in their portfolio or watchlists. Do not give generic or passive advice.
 - When suggesting actions, prioritize the client's risk management and ROI maximization.
 - Keep responses concise, direct, and under 200 words. Speak like a professional card fund manager. Use bold headings and clean formatting.`;
@@ -2504,22 +2689,50 @@ Instructions:
           .filter(s => s.price > 0 && s.date)
           .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const lastSales = parsedSales.slice(-8);
+        // Group by unique date to prevent zig-zags and duplicate X-axis labels
+        const groupedByDate = {};
+        parsedSales.forEach(s => {
+          const d = new Date(s.date);
+          const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          if (!groupedByDate[label]) {
+            groupedByDate[label] = { prices: [], dateObj: d };
+          }
+          groupedByDate[label].prices.push(s.price);
+        });
+
+        // Convert back to sorted list of points, chronologically
+        const groupedPoints = Object.keys(groupedByDate)
+          .map(label => {
+            const prices = groupedByDate[label].prices;
+            const sum = prices.reduce((a, b) => a + b, 0);
+            const avg = Math.round(sum / prices.length);
+            const min = Math.min(...prices);
+            const max = Math.max(...prices);
+            return {
+              name: label,
+              price: avg,
+              predictedPrice: avg,
+              minPrice: min,
+              maxPrice: max,
+              dateObj: groupedByDate[label].dateObj
+            };
+          })
+          .sort((a, b) => a.dateObj - b.dateObj);
+
+        const lastSales = groupedPoints.slice(-8);
         let chartPoints = [];
         const avgCompPrice = lastSales.length > 0 ? (lastSales.reduce((acc, curr) => acc + curr.price, 0) / lastSales.length) : 0;
         const baseValue = card.price || card.estimatedPrice || avgCompPrice || 120;
 
         if (lastSales.length > 0) {
-          chartPoints = lastSales.map((s) => {
-            const d = new Date(s.date);
-            const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-            return {
-              name: label,
-              price: Math.round(s.price),
-              predictedPrice: Math.round(s.price),
-              type: "Historical"
-            };
-          });
+          chartPoints = lastSales.map((s) => ({
+            name: s.name,
+            price: s.price,
+            predictedPrice: s.price,
+            minPrice: s.minPrice,
+            maxPrice: s.maxPrice,
+            type: "Historical"
+          }));
         } else {
           // Generate realistic mock history points showing beautiful movement
           const now = new Date();
@@ -2527,10 +2740,13 @@ Instructions:
             const d = new Date(now.getTime() - i * 4 * 24 * 60 * 60 * 1000);
             const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
             const factor = 1 + (Math.sin(i) * 0.08) - (i * 0.015);
+            const mockVal = Math.round(baseValue * factor);
             chartPoints.push({
               name: label,
-              price: Math.round(baseValue * factor),
-              predictedPrice: Math.round(baseValue * factor),
+              price: mockVal,
+              predictedPrice: mockVal,
+              minPrice: mockVal,
+              maxPrice: mockVal,
               type: "Historical"
             });
           }
@@ -2547,13 +2763,16 @@ Instructions:
           }
         }
 
-        const finalActualPrice = chartPoints[chartPoints.length - 1].price;
+        const finalActualPoint = chartPoints[chartPoints.length - 1];
+        const finalActualPrice = finalActualPoint.price;
 
         // Add 3 projection points
         chartPoints.push({
           name: "+1W (Proj)",
           price: null,
           predictedPrice: Math.round(finalActualPrice * (1 + trendRate)),
+          minPrice: null,
+          maxPrice: null,
           type: "Projected"
         });
 
@@ -2561,6 +2780,8 @@ Instructions:
           name: "+2W (Proj)",
           price: null,
           predictedPrice: Math.round(finalActualPrice * (1 + trendRate * 2)),
+          minPrice: null,
+          maxPrice: null,
           type: "Projected"
         });
 
@@ -2568,6 +2789,8 @@ Instructions:
           name: "+3W (Proj)",
           price: null,
           predictedPrice: Math.round(finalActualPrice * (1 + trendRate * 3)),
+          minPrice: null,
+          maxPrice: null,
           type: "Projected"
         });
 
@@ -2819,12 +3042,18 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
             estimatedPrice: price
           };
         });
+        const isRookieQuery = /rc|rookie|rookies/i.test(q);
         mapped.sort((a, b) => {
           if (searchYear) {
             const aYearMatch = String(a.year || "").includes(searchYear);
             const bYearMatch = String(b.year || "").includes(searchYear);
             if (aYearMatch && !bYearMatch) return -1;
             if (!aYearMatch && bYearMatch) return 1;
+          }
+          if (isRookieQuery) {
+            const aYear = parseInt(a.year) || 9999;
+            const bYear = parseInt(b.year) || 9999;
+            if (aYear !== bYear) return aYear - bYear;
           }
           if (a.estimatedPrice > 0 && b.estimatedPrice === 0) return -1;
           if (a.estimatedPrice === 0 && b.estimatedPrice > 0) return 1;
@@ -2892,7 +3121,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
       <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", background: S.bg, fontFamily: "'Inter', sans-serif" }}>
         <div style={{ ...S.card, width: 380, padding: 30, background: "linear-gradient(145deg, #ffffff, #f8fafc)", border: "1px solid #cbd5e1" }}>
           <div style={{ textAlign: "center", marginBottom: 24, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <img src={LogoImg} alt="Kartis Logo" style={{ height: 42, marginBottom: 10 }} />
+            <img src={LogoImg} alt="Kartis Logo" style={{ height: 70, marginBottom: 10 }} />
             <span style={{ fontSize: 28, fontWeight: 900, color: S.text, letterSpacing: "-1px" }}>Kart<span style={{ color: S.accent }}>is</span></span>
             <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>Sports Card Investment & AI Advisor</div>
           </div>
@@ -2924,7 +3153,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
       <div className="app-header">
         <div className="header-top">
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <img src={LogoImg} alt="Kartis" style={{ height: 48, width: "auto", display: "block" }} />
+            <img src={LogoImg} alt="Kartis" style={{ height: 64, width: "auto", display: "block" }} />
             <span className="header-subtitle" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.14em", color: S.muted, textTransform: "uppercase" }}>Sports Card Advisor</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3819,10 +4048,34 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                   ? <InvalidKeyBanner />
                   : (
                     <div style={{ ...S.card, borderColor: "#1e3a8a33" }}>
-                      <div style={{ ...S.label, color: S.accent, marginBottom: 12 }}>
-                        Analysis: {analyzedCard
-                          ? `${analyzedCard.year} ${analyzedCard.name || analyzedCard.player} ${analyzedCard.releaseName || ''} ${analyzedCard.setName || ''} ${analyzedCard.parallelName ? `(${analyzedCard.parallelName})` : ''}`
-                          : marketQuery}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                        <div style={{ flex: 1, marginRight: 16 }}>
+                          <div style={{ ...S.label, color: S.accent, marginBottom: 4 }}>
+                            Analysis
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: S.text }}>
+                            {analyzedCard
+                              ? `${analyzedCard.year} ${analyzedCard.name || analyzedCard.player} ${analyzedCard.releaseName || ''} ${analyzedCard.setName || ''} ${analyzedCard.parallelName ? `(${analyzedCard.parallelName})` : ''}`
+                              : marketQuery}
+                          </div>
+                        </div>
+                        {(() => {
+                          const historical = analysisChartData.filter(d => d.price !== null && d.price !== undefined);
+                          const currentVal = historical.length > 0 ? historical[historical.length - 1].price : (analyzedCard?.price || 0);
+                          if (currentVal > 0) {
+                            return (
+                              <div style={{ textAlign: "right", minWidth: 100 }}>
+                                <div style={{ fontSize: 20, fontWeight: 900, color: S.text }}>
+                                  {fmt(currentVal)}
+                                </div>
+                                <div style={{ fontSize: 9.5, color: "#64748b", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em", marginTop: 2 }}>
+                                  Current Price
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
 
                       {/* Price Trend Chart with AI Predictions */}
@@ -3838,7 +4091,19 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                                 <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
                                 <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
-                                <Tooltip formatter={(value) => [`$${value}`, "Value"]} labelStyle={{ color: "#0f172a", fontWeight: 700 }} contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 8, boxShadow: "0 4px 6px rgba(0,0,0,0.05)" }} />
+                                <Tooltip 
+                                  formatter={(value, name, entry) => {
+                                    if (name === "AI Forecast" && entry && entry.payload && entry.payload.price !== null && entry.payload.price !== undefined) {
+                                      return null;
+                                    }
+                                    if (name === "Historical Price" && entry && entry.payload && entry.payload.minPrice !== entry.payload.maxPrice && entry.payload.minPrice !== undefined) {
+                                      return [`$${value} (Range: $${entry.payload.minPrice} - $${entry.payload.maxPrice})`, name];
+                                    }
+                                    return [`$${value}`, name];
+                                  }} 
+                                  labelStyle={{ color: "#0f172a", fontWeight: 700 }} 
+                                  contentStyle={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 8, boxShadow: "0 4px 6px rgba(0,0,0,0.05)" }} 
+                                />
                                 <Line name="Historical Price" type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, stroke: "#3b82f6", strokeWidth: 2, fill: "#ffffff" }} activeDot={{ r: 6 }} connectNulls={false} />
                                 <Line name="AI Forecast" type="monotone" dataKey="predictedPrice" stroke="#a855f7" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 4, stroke: "#a855f7", strokeWidth: 2, fill: "#ffffff" }} activeDot={{ r: 6 }} connectNulls={true} />
                               </LineChart>
@@ -3947,7 +4212,7 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
 
             <div style={{ marginBottom: 20 }}>
               <div style={S.label}>Email Address</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: S.text, background: "#0d0d18", border: "1px solid #1e1e2e", borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: "#64748b", background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, padding: "10px 14px" }}>
                 {user.email}
               </div>
             </div>
