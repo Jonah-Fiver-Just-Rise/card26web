@@ -98,14 +98,28 @@ class CardThumbnail extends StatelessWidget {
   }
 
   Widget _buildFallbackLogo() {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Image.asset(
-        'assets/images/logo.png',
-        width: width,
-        height: height,
-        fit: BoxFit.contain,
-        color: AppColors.textMuted.withOpacity(0.4),
+    return Container(
+      color: Colors.white,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.style_outlined,
+            color: AppColors.textMuted.withOpacity(0.5),
+            size: 20,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            "KARTIS",
+            style: TextStyle(
+              fontSize: 7,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textMuted.withOpacity(0.6),
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

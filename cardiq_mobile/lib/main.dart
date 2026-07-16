@@ -29,6 +29,18 @@ import 'core/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (AppConstants.cardSightApiKey.isEmpty) {
+    debugPrint("⚠️ WARNING: CardSight API Key is empty! Make sure to run the app with: flutter run --dart-define-from-file=../cardiq/.env");
+  } else {
+    debugPrint("✅ CardSight API Key loaded successfully.");
+  }
+  if (AppConstants.geminiApiKey.isEmpty) {
+    debugPrint("⚠️ WARNING: Gemini API Key is empty! Make sure to run the app with: flutter run --dart-define-from-file=../cardiq/.env");
+  } else {
+    debugPrint("✅ Gemini API Key loaded successfully.");
+  }
+
   try {
     await Firebase.initializeApp();
   } catch (e) {
@@ -208,6 +220,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                   ),
+                ),
+                const SizedBox(height: 30),
+                Text(
+                  "Version V.4.5",
+                  style: TextStyle(color: AppColors.textMuted.withValues(alpha: 0.5), fontSize: 11),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "Developed by Just Rise Technologies WLL",
+                  style: TextStyle(color: AppColors.textMuted.withValues(alpha: 0.5), fontSize: 11, fontWeight: FontWeight.w600),
                 ),
               ],
             ),

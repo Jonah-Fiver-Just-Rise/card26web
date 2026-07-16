@@ -34,7 +34,7 @@ class WatchlistModel {
     return WatchlistModel(
       id: doc.id,
       player: data['player'] ?? '',
-      year: data['year'] ?? DateTime.now().year,
+      year: int.tryParse(data['year']?.toString() ?? '') ?? DateTime.now().year,
       set: data['set'] ?? '',
       grade: data['grade'] ?? '',
       sport: data['sport'] ?? 'Basketball',

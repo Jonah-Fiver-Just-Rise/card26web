@@ -1,7 +1,7 @@
 class AppConstants {
   static const String appName = "Kartis";
   static const String appSubtitle = "Sports Card Advisor";
-  static const String appVersion = "1.0.0";
+  static const String appVersion = "4.5";
   
   // Firebase Collections
   static const String colUsers = "users";
