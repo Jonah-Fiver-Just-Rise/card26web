@@ -34,16 +34,4 @@ For help getting started with Flutter development, view the
 samples, guidance on mobile development, and a full API reference.
 
 
-<!-- Android Relese -->
 
-flutter build apk --release --dart-define-from-file=../cardiq/.env
-
-
-<!-- Local testing -->
-
-flutter run --dart-define-from-file=../cardiq/.env
-
-
-<!-- iOS -->
-
-flutter build ipa --release --dart-define-from-file=../cardiq/.env

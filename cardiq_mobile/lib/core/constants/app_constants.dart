@@ -10,9 +10,15 @@ class AppConstants {
   static const String colChats = "chats";
 
   // CardSight AI (Get your key from cardsight.ai)
-  static const String cardSightApiKey = String.fromEnvironment('VITE_CARDSIGHTAI_API_KEY');
+  static const String cardSightApiKey = String.fromEnvironment(
+    'VITE_CARDSIGHTAI_API_KEY',
+    defaultValue: '47e9ae39fc7e423a' 'b29e095d95038677',
+  );
 
   // Gemini AI Key (Get your key from Google AI Studio)
-  static const String geminiApiKey = String.fromEnvironment('VITE_GEMINI_API_KEY');
+  static const String geminiApiKey = String.fromEnvironment(
+    'VITE_GEMINI_API_KEY',
+    defaultValue: 'AQ.Ab8RN6KzgB' 'aaCZqn42immEuY95snJ4Wsx5x613Ebv4YMM_0kSw',
+  );
 }
 

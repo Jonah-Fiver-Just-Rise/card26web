@@ -5,7 +5,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  updatePassword
+  updatePassword,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import {
   collection,
@@ -217,6 +218,11 @@ const callChatGPT = async (messages, system) => {
                 parts: [{ text: system }]
               },
               contents: buildGeminiContents(messages),
+              tools: [
+                {
+                  googleSearch: {}
+                }
+              ],
               generationConfig: {
                 maxOutputTokens: 2048,
                 temperature: 0.7
@@ -2172,6 +2178,20 @@ export default function App() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      setAuthError("Please enter your email address first.");
+      return;
+    }
+    setAuthError("");
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setAuthError(`Password reset email sent to ${email.trim()}.`);
+    } catch (err) {
+      setAuthError(err.message.replace("Firebase: ", ""));
+    }
+  };
+
   const handleLogout = () => signOut(auth);
 
   const handlePasswordChange = async (e) => {
@@ -2386,6 +2406,7 @@ ${additionalCardContext}
 
 Instructions:
 - IMPORTANT: Prioritize the live API data provided above (under Live API data gathered) as the absolute source of truth for pricing, comps, and trends. Never claim there is no pricing data, no completed sales, or that the market is undeveloped if estimated values or sales are listed in the live API data.
+- Use the integrated Google Search tool to find real-time player stats, latest game performance, player news, injuries, or transfer/team updates to ground your investment recommendations.
 - Act as a decisive financial advisor. Tell the client exactly when to BUY, SELL, or HOLD specific cards in their portfolio or watchlists. Do not give generic or passive advice.
 - When suggesting actions, prioritize the client's risk management and ROI maximization.
 - Keep responses concise, direct, and under 200 words. Speak like a professional card fund manager. Use bold headings and clean formatting.`;
@@ -3127,9 +3148,27 @@ Keep the analysis professional, specific with numbers, and under 250 words.`;
           </div>
           <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <input type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} style={S.input} required />
-            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={S.input} required />
+            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={S.input} required={!isSignUp} />
+            {!isSignUp && (
+              <div style={{ textAlign: "right", marginTop: -6 }}>
+                <span 
+                  onClick={handleForgotPassword} 
+                  style={{ color: S.accent, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                >
+                  Forgot Password?
+                </span>
+              </div>
+            )}
 
-            {authError && <div style={{ fontSize: 13, color: "#ef4444", textAlign: "center" }}>{authError}</div>}
+            {authError && (
+              <div style={{ 
+                fontSize: 13, 
+                color: authError.includes("sent to") ? "#16a34a" : "#ef4444", 
+                textAlign: "center" 
+              }}>
+                {authError}
+              </div>
+            )}
 
             <button type="submit" style={{ background: S.accent, color: "#ffffff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 800, fontSize: 14, cursor: "pointer", transition: "opacity 0.2s" }}>
               {isSignUp ? "Create Account" : "Sign In"}

@@ -36,6 +36,11 @@ class GeminiService {
                 "parts": [{"text": systemInstruction}]
               },
               "contents": contents,
+              "tools": [
+                {
+                  "googleSearch": {}
+                }
+              ],
               "generationConfig": {
                 "maxOutputTokens": maxOutputTokens,
                 "temperature": temperature,

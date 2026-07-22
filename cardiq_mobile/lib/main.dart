@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,7 +43,20 @@ void main() async {
   }
 
   try {
-    await Firebase.initializeApp();
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: 'AIzaSyAlpquNDTeUzqw-8FFjtq-FhTUk07DqCxg',
+          appId: '1:38075516879:ios:22b425ad62713ce5c4f4ba',
+          messagingSenderId: '38075516879',
+          projectId: 'cardiq-f2cbb',
+          storageBucket: 'cardiq-f2cbb.firebasestorage.app',
+          iosBundleId: 'com.justrise.cardiq.cardiqMobile',
+        ),
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
   } catch (e) {
     debugPrint("Firebase init deferred or failed: $e");
   }
@@ -105,6 +119,38 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isSignUp = false;
   String _errorMessage = "";
   bool _loading = false;
+
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      setState(() {
+        _errorMessage = "Please enter your email address first.";
+      });
+      return;
+    }
+    setState(() {
+      _errorMessage = "";
+      _loading = true;
+    });
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      setState(() {
+        _errorMessage = "Password reset email sent to $email.";
+      });
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message ?? "Failed to send reset email.";
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = "An unexpected error occurred.";
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -183,6 +229,28 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: const InputDecoration(labelText: "Password"),
                   obscureText: true,
                 ),
+                if (!_isSignUp) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(50, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: _forgotPassword,
+                      child: const Text(
+                        "Forgot Password?",
+                        style: TextStyle(
+                          color: AppColors.gold,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 if (_errorMessage.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Text(

@@ -30,3 +30,4 @@ Guidline_task_update/
 .env
 .env.local
 .env.production
+env.txt
